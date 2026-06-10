@@ -1,5 +1,20 @@
 import os
 import sys
+
+# --- PARCHES DE INFRAESTRUCTURA PARA STREAMLIT CLOUD ---
+# 1. Parche de Telemetría: Evita el error "NoneType" al buscar la carpeta HOME en Linux
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+if "HOME" not in os.environ:
+    os.environ["HOME"] = "/tmp"
+
+# 2. Parche de SQLite: Streamlit Cloud usa una versión antigua incompatible con ChromaDB
+try:
+    __import__('pysqlite3')
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass
+# -------------------------------------------------------
+
 import warnings
 import glob
 import re
@@ -23,7 +38,6 @@ class SistemaConfig:
     CHUNK_SIZE: int = 1200
     CHUNK_OVERLAP: int = 200
     TEMPERATURA_LLM: float = 0.0  # Determinismo absoluto para evitar alucinaciones operativas
-
 
 class PipelineETL:
     """Módulo de Extracción, Transformación y Carga con sincronización en caliente."""
@@ -86,7 +100,6 @@ class PipelineETL:
                 print(f"❌ Error en la ingesta de {archivo}: {e}")
         return categorias
 
-
 class SupervisorEnrutamiento:
     """Módulo clasificador encargado de mapear consultas a subcarpetas físicas."""
     def __init__(self, llm: ChatOpenAI, categorias: Set[str]):
@@ -104,14 +117,12 @@ class SupervisorEnrutamiento:
                 return cat
         return None
 
-
 class CorusIntranetEngine:
     """Controlador central de orquestación y lógica RAG multi-capa."""
     def __init__(self):
         self.config = SistemaConfig()
         
         # --- CONFIGURACIÓN SEGURA DE API KEY PARA PRODUCCIÓN ---
-        # Si la variable no está en el sistema o tiene el marcador temporal, la busca en los Secrets de la nube
         if "OPENAI_API_KEY" not in os.environ or os.environ["OPENAI_API_KEY"] in ["#", "sk-pega-tu-clave-aqui"]:
             try:
                 import streamlit as st
@@ -264,10 +275,9 @@ ANÁLISIS O CONSULTA REQUERIDA POR EL ANALISTA: {consulta}"""
             print("\n" + "-" * 50)
             
             self.historial.extend([f"Q: {consulta}", f"A: {res}"])
-            return res  # Retorno a la interfaz gráfica
+            return res
         except Exception as e:
             return f"❌ ERROR TÉCNICO EN EL LLAMADO DE LA API CLOUD: {e}"
-
 
 if __name__ == "__main__":
     intranet_kms = CorusIntranetEngine()
