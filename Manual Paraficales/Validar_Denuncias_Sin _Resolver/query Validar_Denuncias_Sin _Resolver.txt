@@ -1,0 +1,26 @@
+**********************************
+Denuncias
+
+select N.ID_TRAZABILIDAD_NEGOCIO_PROCES "ID", N.ID_TRAZABILIDAD_INSTANCIA_PROC, I.VAL_NOMBRE_PROCESO,I.VAL_NOM_MACROPROCESO, N.ID_EXPEDIENTE, N.ID_RADICADO, N.FEC_CREACION
+ 
+from TRAZABILIDAD_NEGOCIO_PROCESO N
+ 
+inner join TRAZABILIDAD_INSTANCIA_PROCESO I on I.ID_TRAZABILIDAD_INSTANCIA_PROC = N.ID_TRAZABILIDAD_INSTANCIA_PROC
+ 
+where N.ID_EXPEDIENTE in (
+ 
+	select d.ID_EXPEDIENTE
+ 
+	from  ugpp_sip.denuncia d , ugpp_sip.valor_dominio vd
+ 
+	where d.COD_ESTADO_DENUNCIA = vd.ID_VALOR_DOMINIO
+ 
+	and d.ID_DENUNCIA  in ('31336')
+ 
+)
+ 
+--and I.VAL_NOMBRE_PROCESO like  '%SP_DEN_ValidarCompetenciaDenuncia%'
+ 
+--and I.VAL_NOMBRE_PROCESO like  '%SP_DEN_NotificarTraslado%'
+ 
+--and I.VAL_NOMBRE_PROCESO like  '%SP_DEN_GeneracionEnvioTraslado%'
