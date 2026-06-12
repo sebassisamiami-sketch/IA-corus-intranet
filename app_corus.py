@@ -62,7 +62,7 @@ if not st.session_state.autenticado:
     pwd = st.text_input("Contraseña de acceso:", type="password")
     if pwd:
         # 1. Intento de acceso como usuario normal
-        if pwd == "Corus2026*":
+        if pwd == "FarmeoAura*26*****":
             if not sitio_activo:
                 st.error("Acceso denegado: El sistema está en mantenimiento.")
                 time.sleep(2)
@@ -76,7 +76,7 @@ if not st.session_state.autenticado:
                 st.rerun()
                 
         # 2. Intento de acceso como Administrador Maestro
-        elif pwd == "AdminCorus2026*":
+        elif pwd == "Pipeline**2038******":
             st.session_state.autenticado = True
             st.session_state.es_admin = True
             st.session_state.ultimo_acceso = time.time()
