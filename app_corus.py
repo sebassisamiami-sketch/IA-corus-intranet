@@ -6,7 +6,7 @@ from chat_procesos import CorusIntranetEngine
 st.set_page_config(
     page_title="IA Corus - Gestión de Procesos", 
     # Aquí cambiamos el emoji por el nombre exacto de tu archivo .ico
-    page_icon="logo_corus.png", 
+    page_icon="logo_corus2.png", 
     layout="centered", 
     initial_sidebar_state="expanded"
 )
