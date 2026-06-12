@@ -1,49 +1,103 @@
-import os
 import streamlit as st
-from chat_procesos import CorusIntranetEngine
+import time
+import os
+from streamlit_autorefresh import st_autorefresh
 
-# 1. Configuración de la página 
-st.set_page_config(
-    page_title="IA Corus - Gestión de Procesos", 
+# Si tienes tu motor RAG en otro archivo, impórtalo aquí
+# from chat_procesos import CorusIntranetEngine 
+
+# --- 1. CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus.ico", layout="centered")
+
+# --- 2. INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
+if "ultimo_acceso" not in st.session_state:
+    st.session_state.ultimo_acceso = time.time()
+if "mostrar_alerta" not in st.session_state:
+    st.session_state.mostrar_alerta = False
+
+# Límite de tiempo: 5 minutos = 300 segundos
+LIMITE_INACTIVIDAD = 300
+
+# --- 3. DISEÑO DEL CUADRO DE DIÁLOGO (POPUP) ---
+@st.dialog("⚠️ Alerta de Inactividad")
+def dialogo_sesion():
+    st.warning("Tu sesión está a punto de cerrarse por seguridad tras 5 minutos sin actividad.")
+    st.write("¿Deseas mantener la sesión activa?")
     
-    page_icon="logo_corus2.png", 
-    layout="centered", 
-    initial_sidebar_state="expanded"
-)
+    col1, col2 = st.columns(2)
+    with col1:
+        # Botón para seguir en línea
+        if st.button("✅ Aceptar (Mantener en línea)", use_container_width=True):
+            st.session_state.ultimo_acceso = time.time()
+            st.session_state.mostrar_alerta = False
+            st.rerun()
+    with col2:
+        # Botón para cerrar sesión
+        if st.button("🚪 Cerrar Sesión", use_container_width=True):
+            st.session_state.autenticado = False
+            st.session_state.ultimo_acceso = time.time()
+            st.session_state.mostrar_alerta = False
+            st.rerun()
 
-# --- SISTEMA DE CONTROL DE ACCESO (LOGIN) ---
-def check_password():
-    """Retorna True si el usuario ingresa la contraseña correcta."""
-    # Contraseña maestra asignada para el equipo
-    contrasena_maestra = "Corus2026*" 
-
-    def password_entered():
-        if st.session_state["password_input"] == contrasena_maestra:
-            st.session_state["acceso_concedido"] = True
-            del st.session_state["password_input"]  # Borra la contraseña de la memoria
+# --- 4. SISTEMA DE LOGIN DE CRISTAL ---
+if not st.session_state.autenticado:
+    st.title("🏢 Acceso Restringido Corus")
+    pwd = st.text_input("Contraseña de acceso:", type="password")
+    if pwd:
+        if pwd == "Corus2026*":
+            st.session_state.autenticado = True
+            st.session_state.ultimo_acceso = time.time()
+            st.success("Acceso concedido. Cargando...")
+            time.sleep(1)
+            st.rerun()
         else:
-            st.session_state["acceso_concedido"] = False
+            st.error("Contraseña incorrecta.")
+    st.stop() # Bloquea el resto del código si no hay acceso
 
-    # Lógica de visualización del formulario de seguridad
-    if "acceso_concedido" not in st.session_state:
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
-        st.markdown("<h2 style='text-align: center; color: #3b82f6;'>🏢 Acceso Restringido </h2>", unsafe_allow_html=True)
-        st.text_input("🔑 Ingresa la contraseña para continuar:", type="password", on_change=password_entered, key="password_input")
-        return False
-    elif not st.session_state["acceso_concedido"]:
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
-        st.markdown("<h2 style='text-align: center; color: #3b82f6;'>🏢 Acceso Restringido Corus</h2>", unsafe_allow_html=True)
-        st.text_input("🔑 Ingresa la contraseña corporativa para continuar:", type="password", on_change=password_entered, key="password_input")
-        st.error("🚫 Contraseña incorrecta. Acceso denegado.")
-        return False
+# =====================================================================
+# A PARTIR DE AQUÍ, EL USUARIO YA ESTÁ ADENTRO DEL SISTEMA
+# =====================================================================
+
+# --- 5. MOTOR DE TEMPORIZADOR EN SEGUNDO PLANO ---
+# Revisa el reloj silenciosamente cada 10 segundos (10000 ms)
+st_autorefresh(interval=10000, limit=None, key="reloj_sesion")
+
+tiempo_actual = time.time()
+tiempo_transcurrido = tiempo_actual - st.session_state.ultimo_acceso
+
+# Si pasan los 5 minutos, levantamos la bandera de alerta
+if tiempo_transcurrido > LIMITE_INACTIVIDAD:
+    st.session_state.mostrar_alerta = True
+
+# Si la bandera está arriba, disparamos el cuadro de diálogo flotante
+if st.session_state.mostrar_alerta:
+    dialogo_sesion()
+
+# --- 6. INTERFAZ PRINCIPAL DE LA APLICACIÓN ---
+col1, col2 = st.columns([1, 4])
+with col1:
+    if os.path.exists("logo_corus.png"):
+        st.image("logo_corus.png", width='stretch')
+with col2:
+    st.title("Asistente de Procesos Corus")
+
+# Botón lateral por si quieren cerrar sesión manualmente antes de los 5 minutos
+st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.update(autenticado=False))
+
+
+#  7LÓGICA DE CHAT VA AQUÍ ---
+# (CADA 5 MINUTOS SE CIERRA LA SESION)
+
+# Entrada de texto del usuario
+if prompt := st.chat_input("Consulta los manuales de procesos..."):
+    # ¡MUY IMPORTANTE! Al enviar un mensaje, reiniciamos el reloj a cero
+    st.session_state.ultimo_acceso = time.time()
     
-    return True # Acceso validado exitosamente
-
-# Detiene la ejecución de todo el código de abajo si no hay contraseña
-if not check_password():
-    st.stop()
-
-
+    # proceso de respuesta con  motor RAG
+    st.chat_message("user").write(prompt)
+    st.chat_message("assistant").write("Procesando tu consulta...")
 # =====================================================================
 # SISTEMA PRINCIPAL (SOLO VISIBLE CON ACCESO CONCEDIDO)
 # =====================================================================
