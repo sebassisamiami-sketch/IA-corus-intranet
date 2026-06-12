@@ -96,7 +96,7 @@ if not st.session_state.autenticado:
             if not usuario_input.strip() or not pwd:
                 st.warning("Por favor, ingresa tu nombre y la contraseña para continuar.")
             else:
-                if pwd == "Corus2026*":
+                if pwd == "FarmeoAura*26*****":
                     if not sitio_activo:
                         st.error("Acceso denegado: El sistema está en mantenimiento.")
                         time.sleep(2)
@@ -110,7 +110,7 @@ if not st.session_state.autenticado:
                         time.sleep(1)
                         st.rerun()
                         
-                elif pwd == "AdminCorus2026*":
+                elif pwd == "Pipeline**2038******":
                     registrar_acceso(usuario_input.strip(), "Administrador")
                     st.session_state.autenticado = True
                     st.session_state.es_admin = True
