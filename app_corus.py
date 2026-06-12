@@ -2,11 +2,12 @@ import streamlit as st
 import time
 import os
 import datetime
+import glob
 from streamlit_autorefresh import st_autorefresh
 from chat_procesos import CorusIntranetEngine 
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus2.png", layout="centered")
+st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus.ico", layout="centered")
 
 # --- 2. LECTURA DEL ESTADO GLOBAL DEL SERVIDOR (KILL SWITCH) ---
 ARCHIVO_ESTADO = "estado_servidor.txt"
@@ -257,49 +258,49 @@ with st.sidebar:
     st.markdown("### 🛠️ Configuración")
     st.markdown("---")
     
-    # --- CLASIFICADOR DINÁMICO DE SUB-CARPETAS EN PRODUCCIÓN ---
-    cat_parafiscales = []
-    cat_pensiones = []
-    cat_instrucciones = []
-    cat_bpm = []
-    
-    if st.session_state.motor_ia.categorias:
-        for cat in st.session_state.motor_ia.categorias:
-            # Si el nombre coincide con la raíz o existe físicamente dentro de ella en el servidor
-            if cat == "Manual Pensiones" or os.path.isdir(os.path.join("Manual Pensiones", cat)):
-                cat_pensiones.append(cat)
-            elif cat == "Instrucciones Adicionales" or os.path.isdir(os.path.join("Instrucciones Adicionales", cat)):
-                cat_instrucciones.append(cat)
-            elif cat == "Preguntas Adicionales BPM" or os.path.isdir(os.path.join("Preguntas Adicionales BPM", cat)):
-                cat_bpm.append(cat)
-            else:
-                cat_parafiscales.append(cat)
+    # --- MOTOR DE MAPEO 100% DINÁMICO DE CARPETAS ---
+    secciones = {}
+    archivos_pdf = glob.glob("**/*.pdf", recursive=True)
 
-    def renderizar_bloque_carpetas(lista_categorias, mensaje_vacio):
-        """Función auxiliar para inyectar las carpetas con diseño cristal."""
-        if lista_categorias:
-            for cat in lista_categorias:
-                st.markdown(f"""
-                <div class="folder-card">
-                    <span class="folder-icon">📂</span>
-                    <span class="folder-text">{cat}</span>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.caption(f"ℹ️ {mensaje_vacio}")
+    for ruta in archivos_pdf:
+        # Ignorar directorios internos del sistema de control y base de datos
+        if "chroma_db" in ruta or ".git" in ruta:
+            continue
+            
+        # Normalizar rutas para compatibilidad total Linux/Windows en la nube
+        partes = os.path.normpath(ruta).split(os.sep)
+        
+        if len(partes) >= 2:
+            raiz = partes[0]      # Nombre de la carpeta principal (Sección)
+            subcat = partes[-2]   # Nombre del pariente inmediato (Subcarpeta)
+            
+            # Si el archivo está suelto directo en la raíz de ese módulo
+            if raiz == subcat:
+                subcat = "General / Raíz"
+                
+            if raiz not in secciones:
+                secciones[raiz] = set()
+            secciones[raiz].add(subcat)
+            
+        elif len(partes) == 1:
+            raiz = "Documentos Sueltos"
+            if raiz not in secciones:
+                secciones[raiz] = set()
+            secciones[raiz].add("Raíz Principal")
 
-    # Renderizado ordenado de las 4 secciones solicitadas
-    with st.expander("📚 Manuales Parafiscales", expanded=False):
-        renderizar_bloque_carpetas(cat_parafiscales, "No hay subcarpetas indexadas.")
-        
-    with st.expander("📑 Manual Pensiones", expanded=False):
-        renderizar_bloque_carpetas(cat_pensiones, "No hay subcarpetas indexadas.")
-        
-    with st.expander("📝 Instrucciones Adicionales", expanded=False):
-        renderizar_bloque_carpetas(cat_instrucciones, "No hay subcarpetas indexadas.")
-        
-    with st.expander("⚙️ Preguntas Adicionales BPM", expanded=False):
-        renderizar_bloque_carpetas(cat_bpm, "No hay subcarpetas indexadas.")
+    # Generación asíncrona de los menús desplegables basados en el disco
+    if secciones:
+        for raiz in sorted(secciones.keys()):
+            with st.sidebar.expander(f"📁 {raiz}", expanded=False):
+                for subcat in sorted(secciones[raiz]):
+                    st.markdown(f"""
+                    <div class="folder-card">
+                        <span class="folder-icon">📂</span>
+                        <span class="folder-text">{cat}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+    else:
+        st.warning("No hay manuales cargados en el repositorio.")
     
     st.markdown(f"""
     <div class="tip-container">
