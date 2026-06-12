@@ -57,20 +57,23 @@ if "dialogo_abierto" not in st.session_state:
     st.session_state.dialogo_abierto = False
 if "historial_pantalla" not in st.session_state:
     st.session_state.historial_pantalla = []
+if "pensando" not in st.session_state:
+    st.session_state.pensando = False
 
 # Tiempos límite de control de sesión
-LIMITE_ADVERTENCIA = 300  
-LIMITE_EXPULSION = 360    
+LIMITE_ADVERTENCIA = 300  # 5 minutos para mostrar la alerta
+LIMITE_EXPULSION = 360    # 6 minutos para cerrar la sesión a la fuerza
 
 # --- 5. DISEÑO DEL CUADRO DE DIÁLOGO DE INACTIVIDAD ---
 @st.dialog("⚠️ Alerta de Inactividad")
 def mostrar_ventana_caducidad():
     st.session_state.dialogo_abierto = True
     st.warning("Tu sesión está a punto de cerrarse por seguridad tras 5 minutos sin actividad.")
+    st.write("¿Deseas mantener la sesión activa?")
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Mantener en línea", use_container_width=True):
+        if st.button("✅ Aceptar (Mantener en línea)", use_container_width=True):
             st.session_state.ultimo_acceso = time.time()
             st.session_state.dialogo_abierto = False
             st.rerun()
@@ -97,6 +100,7 @@ if not st.session_state.autenticado:
             if not usuario_input.strip() or not pwd:
                 st.warning("Por favor, ingresa tu nombre y la contraseña para continuar.")
             else:
+                # 1. Acceso de tipo Analista
                 if pwd == "FarmeoAura*26*****":
                     if not sitio_activo:
                         st.error("Acceso denegado: El sistema está en mantenimiento.")
@@ -111,6 +115,7 @@ if not st.session_state.autenticado:
                         time.sleep(1)
                         st.rerun()
                         
+                # 2. Acceso de tipo Administrador Maestro
                 elif pwd == "Pipeline**2038******":
                     registrar_acceso(usuario_input.strip(), "Administrador")
                     st.session_state.autenticado = True
@@ -133,14 +138,12 @@ if "motor_ia" not in st.session_state:
         st.session_state.motor_ia = CorusIntranetEngine()
 
 # --- 8. GUARDIÁN DE SESIÓN Y VIGILANTE DE MANTENIMIENTO ---
-if "pensando" not in st.session_state:
-    st.session_state.pensando = False
-
 if not sitio_activo and not st.session_state.es_admin:
     st.session_state.autenticado = False
     st.session_state.dialogo_abierto = False
     st.rerun()
 
+# El vigilante de inactividad solo corre si la IA no está procesando datos
 if not st.session_state.pensando:
     st_autorefresh(interval=30000, limit=None, key="reloj_sesion")
 
@@ -231,12 +234,13 @@ with col1:
         st.markdown("<h1 style='text-align: center;'>🏢</h1>", unsafe_allow_html=True)
 
 with col2:
-    st.title("Asistente Virtual")
+    st.title("Asistente Virtual Corus")
     st.caption("Inteligencia de Procesos & Gestión del Conocimiento")
 st.divider()
 
 # --- 11. SIDEBAR: PANEL DE CONTROL ---
 with st.sidebar:
+    # PANEL VISIBLE ÚNICAMENTE PARA EL ROL ADMINISTRADOR
     if st.session_state.es_admin:
         st.markdown("### 🚨 PANEL MAESTRO")
         if st.button("👁️ VER CONEXIONES", type="secondary"):
@@ -258,23 +262,22 @@ with st.sidebar:
     st.markdown("### 🛠️ Configuración")
     st.markdown("---")
     
-    # --- MOTOR DE MAPEO 100% DINÁMICO DE CARPETAS (Corregido) ---
+    # --- MOTOR DE MAPEO 100% DINÁMICO DE CARPETAS ---
     secciones = {}
     archivos_pdf = glob.glob("**/*.pdf", recursive=True)
 
     for ruta in archivos_pdf:
-        # Ignorar directorios internos del sistema de control y base de datos
+        # Filtrado de exclusión para directorios de control interno o del sistema
         if "chroma_db" in ruta or ".git" in ruta or "__pycache__" in ruta:
             continue
             
-        # Normalizar rutas para compatibilidad total Linux/Windows en la nube
+        # Homologación de rutas multiplataforma (Linux/Windows) para estabilidad en la nube
         partes = os.path.normpath(ruta).split(os.sep)
         
         if len(partes) >= 2:
-            raiz = partes[0]      # Nombre de la carpeta principal (Sección)
-            subcat = partes[-2]   # Nombre del pariente inmediato (Subcarpeta)
+            raiz = partes[0]      # Directorio superior (Módulo)
+            subcat = partes[-2]   # Carpeta contenedora inmediata (Subcategoría)
             
-            # Si el archivo está suelto directo en la raíz de ese módulo
             if raiz == subcat:
                 subcat = "General / Raíz"
                 
@@ -288,7 +291,7 @@ with st.sidebar:
                 secciones[raiz] = set()
             secciones[raiz].add("Raíz Principal")
 
-    # Generación asíncrona de los menús desplegables basados en el disco
+    # Renderizado iterativo de las estructuras encontradas en el disco duro virtual
     if secciones:
         for raiz in sorted(secciones.keys()):
             with st.sidebar.expander(f"📁 {raiz}", expanded=False):
@@ -325,7 +328,7 @@ with st.sidebar:
         st.session_state.es_admin = False
         st.rerun()
 
-# --- 12. ÁREA DE CHAT (LÓGICA RAG) ---
+# --- 12. ÁREA DE CHAT (LÓGICA RAG CON MANEJO DE EXCEPCIONES EXTRAORDINARIO) ---
 if not st.session_state.historial_pantalla:
     st.session_state.historial_pantalla = [{"rol": "assistant", "contenido": "¡Hola! Soy tu experto en flujos y procesos. ¿En qué puedo ayudarte hoy?"}]
 
@@ -343,9 +346,17 @@ if consulta := st.chat_input("Escribe tu consulta sobre flujos o manuales..."):
 
     with st.chat_message("assistant"):
         with st.spinner("Analizando documentación oficial..."):
-            respuesta = st.session_state.motor_ia.procesar_consulta(consulta)
-            st.markdown(respuesta)
-    st.session_state.historial_pantalla.append({"rol": "assistant", "contenido": respuesta})
+            try:
+                # Intento síncrono de resolución mediante incrustaciones vectoriales
+                respuesta = st.session_state.motor_ia.procesar_consulta(consulta)
+                st.markdown(respuesta)
+                st.session_state.historial_pantalla.append({"rol": "assistant", "contenido": respuesta})
+            except Exception as e:
+                # Bloque de contingencia ante fallos: Notifica y libera el hilo principal
+                error_msg = f"❌ Ocurrió un error interno al consultar los manuales: {str(e)}"
+                st.error(error_msg)
+                st.session_state.historial_pantalla.append({"rol": "assistant", "contenido": error_msg})
     
+    # Restablecimiento mandatorio del indicador operativo y recarga segura
     st.session_state.pensando = False
     st.rerun()
