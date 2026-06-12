@@ -198,24 +198,31 @@ class CorusIntranetEngine:
             self.historial, self.cat_actual = [], None
             return "🤖 **SISTEMA:** Caso cerrado formalmente y buffer de memoria RAM liberado. Estoy listo para procesar un nuevo caso."
 
-        # FASE 1: Enrutamiento Lógico con Herencia de Contexto Activa
+        # --- FASE 1: ENRUTAMIENTO DINÁMICO GLOBAL ---
         cat_detectada = self.router.determinar_dominio(consulta)
         cat = cat_detectada if cat_detectada else self.cat_actual
 
-        if not cat: 
-            return "🤖 **SISTEMA:** Por favor, indícame primero con qué carpeta o caso estamos trabajando (ej. 'documentos en blanco') para poder extraer la documentación."
-            
-        if self.cat_actual != cat:
+        # Ya no bloqueamos la consulta si no hay categoría. Simplemente la registramos.
+        if cat and self.cat_actual != cat:
             self.historial, self.cat_actual = [], cat
             print(f"🧹 [SISTEMA] Cambio de contexto detectado. Inicializando dominio: /{cat}")
 
-        print(f"📊 [ENRUTADOR] Bloqueo de seguridad establecido en la subcarpeta: /{cat}")
+        if cat:
+            print(f"📊 [ENRUTADOR] Búsqueda enfocada en la subcarpeta: /{cat}")
+            etiqueta_contexto = cat
+        else:
+            print("🌍 [ENRUTADOR] Categoría no especificada. Activando BÚSQUEDA GLOBAL.")
+            etiqueta_contexto = "toda la documentación corporativa"
 
         # FASE 2: Interceptación y Extracción Relacional Directa (Bypass de Costos)
         comandos_literal = ["informacion completa", "información completa", "archivo original", "texto completo", "literal", "documento completo"]
         es_literal = any(c in clean for c in comandos_literal)
         
         if es_literal:
+            # Aquí sí pedimos categoría, para no colapsar la RAM imprimiendo todos los PDFs de la empresa
+            if not cat:
+                return "🤖 **SISTEMA:** Para extraer un documento completo literal, necesito que me indiques de qué carpeta o manual estamos hablando."
+                
             print(f"\n📦 [SISTEMA] Extrayendo compilación lineal completa desde el disco local...")
             datos_bd = self.vector_db.get(where={"categoria": cat})
             
@@ -243,8 +250,14 @@ class CorusIntranetEngine:
             self.historial.extend([f"Q: {consulta}", "A: [Se entregó el documento original ordenado en pantalla]"])
             return f"### 📄 COMPILACIÓN LITERAL DEL ARCHIVO EN DISCO (/{cat})\n{texto_reconstruido}"
 
-        # FASE 3: Flujo Semántico RAG Proactivo y Seguro contra Alucinaciones
-        docs = self.vector_db.similarity_search(consulta, k=20, filter={"categoria": cat})
+        # --- FASE 3: BÚSQUEDA SEMÁNTICA RAG (LOCAL O GLOBAL) ---
+        if cat:
+            # Búsqueda filtrada por carpeta
+            docs = self.vector_db.similarity_search(consulta, k=20, filter={"categoria": cat})
+        else:
+            # Búsqueda global en toda la base de datos (sin filtro)
+            docs = self.vector_db.similarity_search(consulta, k=20)
+
         contexto_aislado = "\n\n".join([d.page_content for d in docs])
         contexto_previo = "\n".join(self.historial[-4:]) if self.historial else "Inicio de la conversación."
 
@@ -252,21 +265,21 @@ class CorusIntranetEngine:
 Tu misión es conversar fluidamente con el usuario, resolver sus dudas operativas del negocio y proveer recomendaciones técnicas estructuradas basadas estrictamente en los documentos corporativos.
 
 REGLAS DE ANÁLISIS Y CONVERSACIÓN (CERO ALUCINACIONES):
-1. Base de Conocimiento: Extrae los pasos, validaciones, flujos o rutas operativas que ayuden al analista usando el contexto de '{cat}' provisto abajo.
+1. Base de Conocimiento: Extrae los pasos, validaciones, flujos o rutas operativas que ayuden al analista usando el contexto de '{etiqueta_contexto}' provisto abajo.
 2. Flexibilidad Analítica: Si la solución idéntica palabra por palabra no aparece, evalúa la información relacionada, pistas o variables dentro de los fragmentos para estructurar una recomendación útil orientada al problema. 
 3. Blindaje de Entorno: Está terminantemente prohibido inventar sistemas, botones, nombres de servidores o credenciales que no se mencionen textualmente en los fragmentos.
-4. Activación del Candado: Únicamente en caso de que los fragmentos de la subcarpeta '{cat}' no contengan absolutamente ninguna relación, dato o pista útil frente al escenario consultado, responderás exactamente con este texto: "Compañero, revisando el manual de {cat}, no encontré información documentada que nos sirva para este escenario específico."
+4. Activación del Candado: Únicamente en caso de que los fragmentos de '{etiqueta_contexto}' no contengan absolutamente ninguna relación, dato o pista útil frente al escenario consultado, responderás exactamente con este texto: "Compañero, revisando {etiqueta_contexto}, no encontré información documentada que nos sirva para este escenario específico."
 5. Tono: Responde como un colega experto de forma estructurada, limpia y profesional en ESPAÑOL.
 
 HISTORIAL DE LA SESIÓN ACTUAL:
 {contexto_previo}
 
-DOCUMENTACIÓN EXTRAÍDA DE LA SUBCARPETA (/{cat}):
+DOCUMENTACIÓN EXTRAÍDA ({etiqueta_contexto}):
 {contexto_aislado}
 
 ANÁLISIS O CONSULTA REQUERIDA POR EL ANALISTA: {consulta}"""
 
-        print(f"\n🤖 EXPERTO ({cat}):\n" + "-"*50)
+        print(f"\n🤖 EXPERTO ({etiqueta_contexto}):\n" + "-"*50)
         res = ""
         try:
             for chunk in self.llm.stream(prompt_final):
