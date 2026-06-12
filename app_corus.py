@@ -16,6 +16,9 @@ if "dialogo_abierto" not in st.session_state:
     st.session_state.dialogo_abierto = False
 if "historial_pantalla" not in st.session_state:
     st.session_state.historial_pantalla = []
+# NUEVO: Variable de estado para saber si la IA está trabajando
+if "pensando" not in st.session_state:
+    st.session_state.pensando = False
 
 # Tiempos límite en segundos
 LIMITE_ADVERTENCIA = 300  # 5 minutos para mostrar la alerta
