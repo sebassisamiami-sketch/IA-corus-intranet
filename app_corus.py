@@ -122,7 +122,7 @@ st.markdown("""
 col1, col2 = st.columns([1, 4])
 with col1:
     if os.path.exists("logo_corus.png"):
-        st.image("logo_corus.png", use_container_width=True)
+        st.image("logo_corus.png", width='stretch')
     else:
         st.markdown("<h1 style='text-align: center;'>🏢</h1>", unsafe_allow_html=True)
 
