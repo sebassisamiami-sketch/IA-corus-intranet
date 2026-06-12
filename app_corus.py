@@ -2,10 +2,10 @@ import os
 import streamlit as st
 from chat_procesos import CorusIntranetEngine
 
-# 1. Configuración de la página (¡Actualizado para usar el .ico!)
+# 1. Configuración de la página 
 st.set_page_config(
     page_title="IA Corus - Gestión de Procesos", 
-    # Aquí cambiamos el emoji por el nombre exacto de tu archivo .ico
+    
     page_icon="logo_corus2.png", 
     layout="centered", 
     initial_sidebar_state="expanded"
