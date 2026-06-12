@@ -89,7 +89,7 @@ if not st.session_state.autenticado:
         st.error("⚠️ SISTEMA EN MANTENIMIENTO: La plataforma ha sido desactivada temporalmente.")
 
     with st.form("formulario_login"):
-        usuario_input = st.text_input("Ingresa tu Nombre y Apellido:", placeholder="Ej. Sebastián Siabato")
+        usuario_input = st.text_input("Ingresa tu Nombre y Apellido:", placeholder="Ej. Juan Pérez")
         pwd = st.text_input("Contraseña de acceso:", type="password")
         btn_ingresar = st.form_submit_button("Iniciar Sesión", use_container_width=True)
         
@@ -258,13 +258,13 @@ with st.sidebar:
     st.markdown("### 🛠️ Configuración")
     st.markdown("---")
     
-    # --- MOTOR DE MAPEO 100% DINÁMICO DE CARPETAS ---
+    # --- MOTOR DE MAPEO 100% DINÁMICO DE CARPETAS (Corregido) ---
     secciones = {}
     archivos_pdf = glob.glob("**/*.pdf", recursive=True)
 
     for ruta in archivos_pdf:
         # Ignorar directorios internos del sistema de control y base de datos
-        if "chroma_db" in ruta or ".git" in ruta:
+        if "chroma_db" in ruta or ".git" in ruta or "__pycache__" in ruta:
             continue
             
         # Normalizar rutas para compatibilidad total Linux/Windows en la nube
@@ -296,11 +296,11 @@ with st.sidebar:
                     st.markdown(f"""
                     <div class="folder-card">
                         <span class="folder-icon">📂</span>
-                        <span class="folder-text">{cat}</span>
+                        <span class="folder-text">{subcat}</span>
                     </div>
                     """, unsafe_allow_html=True)
     else:
-        st.warning("No hay manuales cargados en el repositorio.")
+        st.warning("No hay manuales indexados en el servidor.")
     
     st.markdown(f"""
     <div class="tip-container">
