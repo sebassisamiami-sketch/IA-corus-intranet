@@ -7,3 +7,4 @@ pypdf
 sentence-transformers
 pysqlite3-binary
 protobuf<=3.20.3
+streamlit-autorefresh
