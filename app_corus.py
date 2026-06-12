@@ -5,7 +5,7 @@ from streamlit_autorefresh import st_autorefresh
 from chat_procesos import CorusIntranetEngine 
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus.ico", layout="centered")
+st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus2.png", layout="centered")
 
 # --- 2. INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
 if "autenticado" not in st.session_state:
