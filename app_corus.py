@@ -2,9 +2,7 @@ import streamlit as st
 import time
 import os
 from streamlit_autorefresh import st_autorefresh
-
-# Si tienes tu motor RAG en otro archivo, impórtalo aquí
-# from chat_procesos import CorusIntranetEngine 
+from chat_procesos import CorusIntranetEngine 
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus.ico", layout="centered")
@@ -14,31 +12,32 @@ if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "ultimo_acceso" not in st.session_state:
     st.session_state.ultimo_acceso = time.time()
-if "mostrar_alerta" not in st.session_state:
-    st.session_state.mostrar_alerta = False
+if "dialogo_abierto" not in st.session_state:
+    st.session_state.dialogo_abierto = False
+if "historial_pantalla" not in st.session_state:
+    st.session_state.historial_pantalla = []
 
-# Límite de tiempo: 5 minutos = 300 segundos
-LIMITE_INACTIVIDAD = 300
+# Tiempos límite en segundos
+LIMITE_ADVERTENCIA = 300  # 5 minutos para mostrar la alerta
+LIMITE_EXPULSION = 360    # 6 minutos para cerrar la sesión a la fuerza
 
 # --- 3. DISEÑO DEL CUADRO DE DIÁLOGO (POPUP) ---
 @st.dialog("⚠️ Alerta de Inactividad")
-def dialogo_sesion():
+def mostrar_ventana_caducidad():
+    st.session_state.dialogo_abierto = True
     st.warning("Tu sesión está a punto de cerrarse por seguridad tras 5 minutos sin actividad.")
     st.write("¿Deseas mantener la sesión activa?")
     
     col1, col2 = st.columns(2)
     with col1:
-        # Botón para seguir en línea
         if st.button("✅ Aceptar (Mantener en línea)", use_container_width=True):
             st.session_state.ultimo_acceso = time.time()
-            st.session_state.mostrar_alerta = False
+            st.session_state.dialogo_abierto = False
             st.rerun()
     with col2:
-        # Botón para cerrar sesión
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.session_state.autenticado = False
-            st.session_state.ultimo_acceso = time.time()
-            st.session_state.mostrar_alerta = False
+            st.session_state.dialogo_abierto = False
             st.rerun()
 
 # --- 4. SISTEMA DE LOGIN DE CRISTAL ---
@@ -57,52 +56,32 @@ if not st.session_state.autenticado:
     st.stop() # Bloquea el resto del código si no hay acceso
 
 # =====================================================================
-# A PARTIR DE AQUÍ, EL USUARIO YA ESTÁ ADENTRO DEL SISTEMA
-# =====================================================================
-
-# --- 5. MOTOR DE TEMPORIZADOR EN SEGUNDO PLANO ---
-# Revisa el reloj silenciosamente cada 10 segundos (10000 ms)
-st_autorefresh(interval=10000, limit=None, key="reloj_sesion")
-
-tiempo_actual = time.time()
-tiempo_transcurrido = tiempo_actual - st.session_state.ultimo_acceso
-
-# Si pasan los 5 minutos, levantamos la bandera de alerta
-if tiempo_transcurrido > LIMITE_INACTIVIDAD:
-    st.session_state.mostrar_alerta = True
-
-# Si la bandera está arriba, disparamos el cuadro de diálogo flotante
-if st.session_state.mostrar_alerta:
-    dialogo_sesion()
-
-# --- 6. INTERFAZ PRINCIPAL DE LA APLICACIÓN ---
-col1, col2 = st.columns([1, 4])
-with col1:
-    if os.path.exists("logo_corus.png"):
-        st.image("logo_corus.png", width='stretch')
-with col2:
-    st.title("Asistente de Procesos Corus")
-
-# Botón lateral por si quieren cerrar sesión manualmente antes de los 5 minutos
-st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.update(autenticado=False))
-
-
-#  7LÓGICA DE CHAT VA AQUÍ ---
-# (CADA 5 MINUTOS SE CIERRA LA SESION)
-
-# Entrada de texto del usuario
-if prompt := st.chat_input("Consulta los manuales de procesos..."):
-    # ¡MUY IMPORTANTE! Al enviar un mensaje, reiniciamos el reloj a cero
-    st.session_state.ultimo_acceso = time.time()
-    
-    # proceso de respuesta con  motor RAG
-    st.chat_message("user").write(prompt)
-    st.chat_message("assistant").write("Procesando tu consulta...")
-# =====================================================================
 # SISTEMA PRINCIPAL (SOLO VISIBLE CON ACCESO CONCEDIDO)
 # =====================================================================
 
-# --- CSS: ESTILO CRISTAL, FOLDERS MODERNOS Y TIP BOX ---
+# --- 5. INICIALIZACIÓN DEL MOTOR IA ---
+if "motor_ia" not in st.session_state:
+    with st.spinner("Iniciando infraestructura y cargando datos corporativos..."):
+        st.session_state.motor_ia = CorusIntranetEngine()
+
+# --- 6. GUARDIÁN DE SESIÓN (TEMPORIZADOR EN SEGUNDO PLANO) ---
+# Revisa el reloj silenciosamente cada 10 segundos
+st_autorefresh(interval=10000, limit=None, key="reloj_sesion")
+
+tiempo_actual = time.time()
+inactividad = tiempo_actual - st.session_state.ultimo_acceso
+
+# Regla de expulsión
+if inactividad >= LIMITE_EXPULSION:
+    st.session_state.autenticado = False
+    st.session_state.dialogo_abierto = False
+    st.rerun()
+# Regla de advertencia
+elif inactividad >= LIMITE_ADVERTENCIA:
+    if not st.session_state.dialogo_abierto:
+        mostrar_ventana_caducidad()
+
+# --- 7. CSS: ESTILO CRISTAL, FOLDERS MODERNOS Y TIP BOX ---
 st.markdown("""
     <style>
     /* Limpieza de marcas de agua */
@@ -173,7 +152,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- CABECERA ---
+# --- 8. CABECERA VISUAL ---
 col1, col2 = st.columns([1, 4])
 with col1:
     if os.path.exists("logo_corus.png"):
@@ -186,12 +165,7 @@ with col2:
     st.caption("Inteligencia de Procesos & Gestión del Conocimiento")
 st.divider()
 
-# 2. Motor IA
-if "motor_ia" not in st.session_state:
-    with st.spinner("Iniciando infraestructura y cargando datos corporativos..."):
-        st.session_state.motor_ia = CorusIntranetEngine()
-
-# --- SIDEBAR: PANEL DE CONTROL ---
+# --- 9. SIDEBAR: PANEL DE CONTROL ---
 with st.sidebar:
     st.markdown("### 🛠️ Configuración")
     st.markdown("---")
@@ -219,21 +193,32 @@ with st.sidebar:
 
     st.markdown("<br>" * 5, unsafe_allow_html=True)
     
+    # Botón de limpiar chat
     if st.button("🗑️ Limpiar Sesión"):
         st.session_state.historial_pantalla = []
         st.session_state.motor_ia.historial = []
         st.session_state.motor_ia.cat_actual = None
+        st.session_state.ultimo_acceso = time.time() # Reinicia reloj
         st.rerun()
 
-# 3. Área de Chat
-if "historial_pantalla" not in st.session_state or not st.session_state.historial_pantalla:
-    st.session_state.historial_pantalla = [{"rol": "assistant", "contenido": "¡Hola, analista! Soy tu experto en flujos y procesos de webmethods. ¿En qué puedo ayudarte hoy?"}]
+    # Botón de cerrado manual en la barra lateral
+    if st.button("🚪 Cerrar Acceso"):
+        st.session_state.autenticado = False
+        st.rerun()
+
+# --- 10. ÁREA DE CHAT (LÓGICA RAG) ---
+if not st.session_state.historial_pantalla:
+    st.session_state.historial_pantalla = [{"rol": "assistant", "contenido": "¡Hola, analista! Soy tu experto en flujos y procesos. ¿En qué puedo ayudarte hoy?"}]
 
 for msg in st.session_state.historial_pantalla:
     with st.chat_message(msg["rol"]):
         st.markdown(msg["contenido"])
 
+# Entrada de texto del usuario
 if consulta := st.chat_input("Escribe tu consulta sobre flujos o manuales..."):
+    # ¡CRÍTICO PARA QUE LA SESIÓN NO SE CIERRE MIENTRAS CHATEAN!
+    st.session_state.ultimo_acceso = time.time()
+    
     with st.chat_message("user"):
         st.markdown(consulta)
     st.session_state.historial_pantalla.append({"rol": "user", "contenido": consulta})
