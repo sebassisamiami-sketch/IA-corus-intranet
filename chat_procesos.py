@@ -41,8 +41,8 @@ class PipelineETL:
         self.config = SistemaConfig()
 
     def _limpiar_texto_pdf(self, texto: str) -> str:
-        if not texto: return ""
-        texto = texto.replace('\x00', '')
+        if texto is None: return ""
+        texto = str(texto).replace('\x00', '')
         texto = re.sub(r'(?<!\n)\n(?!\n)', ' ', texto)
         texto = re.sub(r'\s+', ' ', texto)
         return texto.strip()
@@ -63,10 +63,8 @@ class PipelineETL:
         procesados = set(open(self.config.ARCHIVO_REGISTRO, "r", encoding="utf-8").read().splitlines()) if os.path.exists(self.config.ARCHIVO_REGISTRO) else set()
         nuevos = [a for a in archivos_pdf if a not in procesados]
         
-        # Árbol de conocimiento: {Modulo: set(Categorias)}
         arbol_conocimiento = {}
 
-        # 1. Mapear la estructura actual del disco
         for a in archivos_pdf:
             if "chroma_db" in a or ".git" in a or "__pycache__" in a: continue
             partes = os.path.normpath(a).split(os.sep)
@@ -88,7 +86,6 @@ class PipelineETL:
             chunk_overlap=self.config.CHUNK_OVERLAP
         )
         
-        # 2. Ingesta con doble metadato (Módulo y Categoría)
         for archivo in nuevos:
             partes = os.path.normpath(archivo).split(os.sep)
             mod = partes[0] if len(partes) >= 2 else "General"
@@ -98,13 +95,18 @@ class PipelineETL:
                 reader = PdfReader(archivo)
                 for i, pag in enumerate(reader.pages):
                     txt = self._limpiar_texto_pdf(pag.extract_text())
-                    if txt:
+                    
+                    # 🔒 FILTRO ESTRICTO: Solo si hay texto real, lo procesamos
+                    if txt and len(txt) > 5:
                         frags = text_splitter.split_text(txt)
-                        # Inyectamos las variables dinámicas en el contenido del vector
-                        enriquecidos = [f"[MÓDULO: {mod} | CARPETA: {cat} | PAG: {i+1}]\n{f}" for f in frags]
-                        # Inyectamos ambos metadatos para permitir filtrado múltiple
-                        meta = [{"modulo": mod, "categoria": cat, "fuente": os.path.basename(archivo), "pagina": i+1}] * len(frags)
-                        self.vector_db.add_texts(enriquecidos, meta)
+                        # Segunda validación: quitamos fragmentos vacíos o nulos
+                        frags_limpios = [f for f in frags if f and str(f).strip()]
+                        
+                        if frags_limpios:
+                            enriquecidos = [f"[MÓDULO: {mod} | CARPETA: {cat} | PAG: {i+1}]\n{f}" for f in frags_limpios]
+                            meta = [{"modulo": mod, "categoria": cat, "fuente": os.path.basename(archivo), "pagina": i+1}] * len(frags_limpios)
+                            self.vector_db.add_texts(enriquecidos, meta)
+                            
                 with open(self.config.ARCHIVO_REGISTRO, "a", encoding="utf-8") as f: 
                     f.write(archivo + "\n")
             except Exception as e: 
@@ -147,12 +149,10 @@ class CorusIntranetEngine:
             self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
             self.llm = ChatOpenAI(model=self.config.MODELO_LLM, temperature=self.config.TEMPERATURA_LLM)
         except Exception as e:
-            print(f"❌ FALLO CRÍTICO DE CONEXIÓN CON LOS SERVICIOS DE IA: {e}")
+            print(f"❌ FALLO CRÍTICO DE CONEXIÓN: {e}")
             sys.exit(1)
             
         self.arbol_conocimiento = PipelineETL(self.vector_db).ejecutar_sincronizacion()
-        
-        # Aplanamos las categorías para que el LLM siga ayudando a identificar subcarpetas
         todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
         self.router = SupervisorEnrutamiento(self.llm, todas_cats)
         self.historial, self.cat_actual = [], None
@@ -160,15 +160,18 @@ class CorusIntranetEngine:
     def procesar_consulta(self, consulta: str) -> str:
         clean = consulta.lower().strip()
         
-        # 0. Comando Maestro de Reestructuración (Formateo)
+        # 0. Comando Maestro de Reestructuración (Formateo Profundo)
         if clean == "formatear sistema":
             try:
+                # Destruye la base de datos vieja
                 self.vector_db.delete_collection()
+                # La reconstruye desde cero inmediatamente para evitar errores de conexión
+                self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
                 if os.path.exists(self.config.ARCHIVO_REGISTRO): 
                     os.remove(self.config.ARCHIVO_REGISTRO)
                 self.arbol_conocimiento = {}
                 self.router.categorias = set()
-                return "⚠️ **SISTEMA:** Base de datos vectorial formateada con éxito. Por favor, escribe 'actualizar base' para reindexar todos los manuales con la nueva arquitectura de metadatos."
+                return "⚠️ **SISTEMA:** Base de datos destruida y purgada. Por favor, escribe 'actualizar base' para reindexar limpiamente."
             except Exception as e:
                 return f"❌ Error al formatear la base de datos: {e}"
 
@@ -183,19 +186,18 @@ class CorusIntranetEngine:
             self.arbol_conocimiento = etl.ejecutar_sincronizacion()
             todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
             self.router.categorias = todas_cats
-            return "🤖 **SISTEMA:** ¡Sincronización en caliente y arquitectura de metadatos actualizada con éxito!"
+            return "🤖 **SISTEMA:** ¡Sincronización completada! Los archivos fueron procesados y purgados de errores."
 
         frases_cierre = ["caso solucionado", "caso cerrado", "ya quedo", "gracias", "listo", "fin"]
         if any(f in clean for f in frases_cierre):
             self.historial, self.cat_actual = [], None
             return "🤖 **SISTEMA:** Caso cerrado formalmente. Estoy listo para procesar un nuevo caso."
 
-        # --- FASE 1: ENRUTAMIENTO INTELIGENTE DOBLE (Módulo vs Carpeta) ---
+        # --- FASE 1: ENRUTAMIENTO INTELIGENTE DOBLE ---
         filtros = {}
         modulo_detectado = None
         etiqueta_contexto = "toda la documentación corporativa"
 
-        # A. Escaneo por Módulo (Busca palabras como "pensiones", "parafiscales")
         for mod in self.arbol_conocimiento.keys():
             mod_limpio = mod.lower().replace("manual", "").strip()
             if mod_limpio and (mod_limpio in clean or mod.lower() in clean):
@@ -205,24 +207,21 @@ class CorusIntranetEngine:
         if modulo_detectado:
             filtros["modulo"] = modulo_detectado
             etiqueta_contexto = f"el Módulo: {modulo_detectado}"
-            print(f"🌍 [ENRUTADOR] Módulo Maestro detectado por el analista: {modulo_detectado}")
         else:
-            # B. Escaneo por Subcarpeta (Si no mencionó el módulo, la IA busca la carpeta específica)
             cat_detectada = self.router.determinar_dominio(consulta)
             if cat_detectada:
                 filtros["categoria"] = cat_detectada
                 etiqueta_contexto = f"la subcarpeta: {cat_detectada}"
-                print(f"📊 [ENRUTADOR] Subcarpeta detectada por IA: {cat_detectada}")
-            else:
-                print("🌍 [ENRUTADOR] Búsqueda GLOBAL activa (sin filtros).")
 
-        # --- FASE 2: BÚSQUEDA SEMÁNTICA RAG (LOCAL O GLOBAL) ---
+        # --- FASE 2: BÚSQUEDA SEMÁNTICA RAG ---
         if filtros:
             docs = self.vector_db.similarity_search(consulta, k=20, filter=filtros)
         else:
             docs = self.vector_db.similarity_search(consulta, k=20)
 
-        contexto_aislado = "\n\n".join([d.page_content for d in docs])
+        # Filtro de seguridad post-extracción para ignorar "Nones" si Chroma llega a fallar
+        docs_validos = [d.page_content for d in docs if d and d.page_content]
+        contexto_aislado = "\n\n".join(docs_validos)
         contexto_previo = "\n".join(self.historial[-4:]) if self.historial else "Inicio de la conversación."
 
         prompt_final = f"""Eres un Consultor y Analista de Procesos Senior. 
@@ -241,13 +240,10 @@ DOCUMENTACIÓN EXTRAÍDA ({etiqueta_contexto}):
 
 CONSULTA DEL ANALISTA: {consulta}"""
 
-        print(f"\n🤖 EXPERTO ({etiqueta_contexto}):\n" + "-"*50)
         res = ""
         try:
             for chunk in self.llm.stream(prompt_final):
-                print(chunk.content, end="", flush=True)
                 res += chunk.content
-            print("\n" + "-" * 50)
             
             self.historial.extend([f"Q: {consulta}", f"A: {res}"])
             return res
