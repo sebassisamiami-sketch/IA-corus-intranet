@@ -6,7 +6,7 @@ from streamlit_autorefresh import st_autorefresh
 from chat_procesos import CorusIntranetEngine 
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus2.png", layout="centered")
+st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus.ico", layout="centered")
 
 # --- 2. LECTURA DEL ESTADO GLOBAL DEL SERVIDOR (KILL SWITCH) ---
 ARCHIVO_ESTADO = "estado_servidor.txt"
@@ -22,7 +22,6 @@ ARCHIVO_LOGS = "registro_conexiones.csv"
 def registrar_acceso(usuario, rol):
     """Guarda la marca de tiempo, usuario y rol en un archivo CSV local."""
     ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # Limpiamos las comas del usuario para no romper el CSV
     usuario_limpio = usuario.replace(",", " ")
     with open(ARCHIVO_LOGS, "a", encoding="utf-8") as f:
         f.write(f"{ahora},{usuario_limpio},{rol}\n")
@@ -34,7 +33,6 @@ def mostrar_monitor_conexiones():
             lineas = f.readlines()
         
         datos = []
-        # Leemos el historial al revés para que lo más reciente salga arriba
         for linea in reversed(lineas):
             partes = linea.strip().split(",")
             if len(partes) == 3:
@@ -59,6 +57,7 @@ if "dialogo_abierto" not in st.session_state:
 if "historial_pantalla" not in st.session_state:
     st.session_state.historial_pantalla = []
 
+# Tiempos límite de control de sesión
 LIMITE_ADVERTENCIA = 300  
 LIMITE_EXPULSION = 360    
 
@@ -81,14 +80,13 @@ def mostrar_ventana_caducidad():
             st.session_state.dialogo_abierto = False
             st.rerun()
 
-# --- 6. SISTEMA DE LOGIN DE DOBLE CAPA (CON IDENTIFICACIÓN) ---
+# --- 6. SISTEMA DE LOGIN DE DOBLE CAPA ---
 if not st.session_state.autenticado:
     st.title("🏢 Acceso Restringido")
     
     if not sitio_activo:
         st.error("⚠️ SISTEMA EN MANTENIMIENTO: La plataforma ha sido desactivada temporalmente.")
 
-    # Usamos st.form para agrupar nombre y contraseña
     with st.form("formulario_login"):
         usuario_input = st.text_input("Ingresa tu Nombre y Apellido:", placeholder="Ej. Sebastián Siabato")
         pwd = st.text_input("Contraseña de acceso:", type="password")
@@ -98,8 +96,7 @@ if not st.session_state.autenticado:
             if not usuario_input.strip() or not pwd:
                 st.warning("Por favor, ingresa tu nombre y la contraseña para continuar.")
             else:
-                # 1. Intento de acceso Analista
-                if pwd == "FarmeoAura*26*****":
+                if pwd == "Corus2026*":
                     if not sitio_activo:
                         st.error("Acceso denegado: El sistema está en mantenimiento.")
                         time.sleep(2)
@@ -113,8 +110,7 @@ if not st.session_state.autenticado:
                         time.sleep(1)
                         st.rerun()
                         
-                # 2. Intento de acceso Administrador
-                elif pwd == "Pipeline**2038******":
+                elif pwd == "AdminCorus2026*":
                     registrar_acceso(usuario_input.strip(), "Administrador")
                     st.session_state.autenticado = True
                     st.session_state.es_admin = True
@@ -122,7 +118,6 @@ if not st.session_state.autenticado:
                     st.success("⚙️ Acceso de Administrador concedido...")
                     time.sleep(1)
                     st.rerun()
-                    
                 else:
                     st.error("Contraseña incorrecta.")
     st.stop() 
@@ -241,15 +236,11 @@ st.divider()
 
 # --- 11. SIDEBAR: PANEL DE CONTROL ---
 with st.sidebar:
-    # 🔴 PANEL EXCLUSIVO PARA EL ADMINISTRADOR 🔴
     if st.session_state.es_admin:
         st.markdown("### 🚨 PANEL MAESTRO")
-        
-        # Botón para abrir el Monitor de Accesos
         if st.button("👁️ VER CONEXIONES", type="secondary"):
             mostrar_monitor_conexiones()
             
-        # Botón de Kill Switch
         if sitio_activo:
             if st.button("🔴 APAGAR SITIO", type="primary"):
                 with open(ARCHIVO_ESTADO, "w") as f:
@@ -266,9 +257,28 @@ with st.sidebar:
     st.markdown("### 🛠️ Configuración")
     st.markdown("---")
     
-    with st.expander("📚 Manuales Parafiscales", expanded=True):
-        if st.session_state.motor_ia.categorias:
-            for cat in st.session_state.motor_ia.categorias:
+    # --- CLASIFICADOR DINÁMICO DE SUB-CARPETAS EN PRODUCCIÓN ---
+    cat_parafiscales = []
+    cat_pensiones = []
+    cat_instrucciones = []
+    cat_bpm = []
+    
+    if st.session_state.motor_ia.categorias:
+        for cat in st.session_state.motor_ia.categorias:
+            # Si el nombre coincide con la raíz o existe físicamente dentro de ella en el servidor
+            if cat == "Manual Pensiones" or os.path.isdir(os.path.join("Manual Pensiones", cat)):
+                cat_pensiones.append(cat)
+            elif cat == "Instrucciones Adicionales" or os.path.isdir(os.path.join("Instrucciones Adicionales", cat)):
+                cat_instrucciones.append(cat)
+            elif cat == "Preguntas Adicionales BPM" or os.path.isdir(os.path.join("Preguntas Adicionales BPM", cat)):
+                cat_bpm.append(cat)
+            else:
+                cat_parafiscales.append(cat)
+
+    def renderizar_bloque_carpetas(lista_categorias, mensaje_vacio):
+        """Función auxiliar para inyectar las carpetas con diseño cristal."""
+        if lista_categorias:
+            for cat in lista_categorias:
                 st.markdown(f"""
                 <div class="folder-card">
                     <span class="folder-icon">📂</span>
@@ -276,7 +286,20 @@ with st.sidebar:
                 </div>
                 """, unsafe_allow_html=True)
         else:
-            st.warning("No hay manuales cargados.")
+            st.caption(f"ℹ️ {mensaje_vacio}")
+
+    # Renderizado ordenado de las 4 secciones solicitadas
+    with st.expander("📚 Manuales Parafiscales", expanded=False):
+        renderizar_bloque_carpetas(cat_parafiscales, "No hay subcarpetas indexadas.")
+        
+    with st.expander("📑 Manual Pensiones", expanded=False):
+        renderizar_bloque_carpetas(cat_pensiones, "No hay subcarpetas indexadas.")
+        
+    with st.expander("📝 Instrucciones Adicionales", expanded=False):
+        renderizar_bloque_carpetas(cat_instrucciones, "No hay subcarpetas indexadas.")
+        
+    with st.expander("⚙️ Preguntas Adicionales BPM", expanded=False):
+        renderizar_bloque_carpetas(cat_bpm, "No hay subcarpetas indexadas.")
     
     st.markdown(f"""
     <div class="tip-container">
@@ -287,7 +310,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<br>" * 5, unsafe_allow_html=True)
+    st.markdown("<br>" * 3, unsafe_allow_html=True)
     
     if st.button("🗑️ Limpiar Sesión"):
         st.session_state.historial_pantalla = []
