@@ -48,7 +48,7 @@ if not st.session_state.autenticado:
     st.title("🏢 Acceso Restringido Corus")
     pwd = st.text_input("Contraseña de acceso:", type="password")
     if pwd:
-        if pwd == "Corus2026*":
+        if pwd == "Pipeline**2038******":
             st.session_state.autenticado = True
             st.session_state.ultimo_acceso = time.time()
             st.success("Acceso concedido. Cargando...")
