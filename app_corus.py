@@ -5,26 +5,33 @@ from streamlit_autorefresh import st_autorefresh
 from chat_procesos import CorusIntranetEngine 
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus2.png", layout="centered")
+st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus.ico", layout="centered")
 
-# --- 2. INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
+# --- 2. LECTURA DEL ESTADO GLOBAL DEL SERVIDOR (KILL SWITCH) ---
+ARCHIVO_ESTADO = "estado_servidor.txt"
+sitio_activo = True
+if os.path.exists(ARCHIVO_ESTADO):
+    with open(ARCHIVO_ESTADO, "r") as f:
+        if f.read().strip() == "OFFLINE":
+            sitio_activo = False
+
+# --- 3. INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
+if "es_admin" not in st.session_state:
+    st.session_state.es_admin = False
 if "ultimo_acceso" not in st.session_state:
     st.session_state.ultimo_acceso = time.time()
 if "dialogo_abierto" not in st.session_state:
     st.session_state.dialogo_abierto = False
 if "historial_pantalla" not in st.session_state:
     st.session_state.historial_pantalla = []
-# NUEVO: Variable de estado para saber si la IA está trabajando
-if "pensando" not in st.session_state:
-    st.session_state.pensando = False
 
 # Tiempos límite en segundos
 LIMITE_ADVERTENCIA = 300  # 5 minutos para mostrar la alerta
 LIMITE_EXPULSION = 360    # 6 minutos para cerrar la sesión a la fuerza
 
-# --- 3. DISEÑO DEL CUADRO DE DIÁLOGO (POPUP) ---
+# --- 4. DISEÑO DEL CUADRO DE DIÁLOGO (POPUP) ---
 @st.dialog("⚠️ Alerta de Inactividad")
 def mostrar_ventana_caducidad():
     st.session_state.dialogo_abierto = True
@@ -40,20 +47,43 @@ def mostrar_ventana_caducidad():
     with col2:
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
             st.session_state.autenticado = False
+            st.session_state.es_admin = False
             st.session_state.dialogo_abierto = False
             st.rerun()
 
-# --- 4. SISTEMA DE LOGIN DE CRISTAL ---
+# --- 5. SISTEMA DE LOGIN DE DOBLE CAPA ---
 if not st.session_state.autenticado:
     st.title("🏢 Acceso Restringido Corus")
+    
+    # Aviso público si el sitio está apagado
+    if not sitio_activo:
+        st.error("⚠️ SISTEMA EN MANTENIMIENTO: La plataforma de procesos ha sido desactivada temporalmente. Intenta más tarde.")
+
     pwd = st.text_input("Contraseña de acceso:", type="password")
     if pwd:
-        if pwd == "Pipeline**2038******":
+        # 1. Intento de acceso como usuario normal
+        if pwd == "Corus2026*":
+            if not sitio_activo:
+                st.error("Acceso denegado: El sistema está en mantenimiento.")
+                time.sleep(2)
+                st.rerun()
+            else:
+                st.session_state.autenticado = True
+                st.session_state.es_admin = False
+                st.session_state.ultimo_acceso = time.time()
+                st.success("Acceso concedido. Cargando...")
+                time.sleep(1)
+                st.rerun()
+                
+        # 2. Intento de acceso como Administrador Maestro
+        elif pwd == "AdminCorus2026*":
             st.session_state.autenticado = True
+            st.session_state.es_admin = True
             st.session_state.ultimo_acceso = time.time()
-            st.success("Acceso concedido. Cargando...")
+            st.success("⚙️ Acceso de Administrador concedido...")
             time.sleep(1)
             st.rerun()
+            
         else:
             st.error("Contraseña incorrecta.")
     st.stop() # Bloquea el resto del código si no hay acceso
@@ -62,45 +92,52 @@ if not st.session_state.autenticado:
 # SISTEMA PRINCIPAL (SOLO VISIBLE CON ACCESO CONCEDIDO)
 # =====================================================================
 
-# --- 5. INICIALIZACIÓN DEL MOTOR IA ---
+# --- 6. INICIALIZACIÓN DEL MOTOR IA ---
 if "motor_ia" not in st.session_state:
     with st.spinner("Iniciando infraestructura y cargando datos corporativos..."):
         st.session_state.motor_ia = CorusIntranetEngine()
 
-# --- 6. GUARDIÁN DE SESIÓN (TEMPORIZADOR EN SEGUNDO PLANO) ---
-# Revisa el reloj silenciosamente cada 10 segundos
-st_autorefresh(interval=10000, limit=None, key="reloj_sesion")
+# --- 7. GUARDIÁN DE SESIÓN Y VIGILANTE DE MANTENIMIENTO ---
+if "pensando" not in st.session_state:
+    st.session_state.pensando = False
+
+# Expulsión en vivo: Si el admin apaga el sitio, saca a los normales de inmediato
+if not sitio_activo and not st.session_state.es_admin:
+    st.session_state.autenticado = False
+    st.session_state.dialogo_abierto = False
+    st.rerun()
+
+# El reloj solo avanza si la IA no está pensando
+if not st.session_state.pensando:
+    st_autorefresh(interval=30000, limit=None, key="reloj_sesion")
 
 tiempo_actual = time.time()
 inactividad = tiempo_actual - st.session_state.ultimo_acceso
 
-# Regla de expulsión
+# Reglas de expulsión por tiempo
 if inactividad >= LIMITE_EXPULSION:
     st.session_state.autenticado = False
+    st.session_state.es_admin = False
     st.session_state.dialogo_abierto = False
     st.rerun()
-# Regla de advertencia
 elif inactividad >= LIMITE_ADVERTENCIA:
     if not st.session_state.dialogo_abierto:
         mostrar_ventana_caducidad()
 
-# --- 7. CSS: ESTILO CRISTAL, FOLDERS MODERNOS Y TIP BOX ---
+# --- 8. CSS: ESTILO CRISTAL, FOLDERS MODERNOS Y TIP BOX ---
 st.markdown("""
     <style>
-    /* Limpieza de marcas de agua */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stAppDeployButton {display: none !important;}
     header {background: transparent !important;}
 
-    /* Fondo del Panel Lateral con Transparencia */
     [data-testid="stSidebar"] {
         background-color: rgba(255, 255, 255, 0.02) !important;
         backdrop-filter: blur(20px) !important;
         border-right: 1px solid rgba(255, 255, 255, 0.05) !important;
     }
 
-    /* DISEÑO DE SUB-CARPETAS (Folder Cards) */
     .folder-card {
         background: rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.1);
@@ -123,7 +160,6 @@ st.markdown("""
         font-family: 'Urbanist', sans-serif;
     }
 
-    /* CAJA DE TIP (Sugerencia) */
     .tip-container {
         background: rgba(59, 130, 246, 0.05);
         border-left: 3px solid #3b82f6;
@@ -133,7 +169,6 @@ st.markdown("""
     }
     .tip-text { font-size: 13px; color: #94a3b8; line-height: 1.4; }
 
-    /* EL BOTÓN: Gris humo transparentoso */
     div.stButton > button {
         background: rgba(128, 128, 128, 0.1) !important;
         color: #f8fafc !important; 
@@ -155,7 +190,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 8. CABECERA VISUAL ---
+# --- 9. CABECERA VISUAL ---
 col1, col2 = st.columns([1, 4])
 with col1:
     if os.path.exists("logo_corus.png"):
@@ -168,8 +203,24 @@ with col2:
     st.caption("Inteligencia de Procesos & Gestión del Conocimiento")
 st.divider()
 
-# --- 9. SIDEBAR: PANEL DE CONTROL ---
+# --- 10. SIDEBAR: PANEL DE CONTROL ---
 with st.sidebar:
+    # 🔴 PANEL EXCLUSIVO PARA EL ADMINISTRADOR 🔴
+    if st.session_state.es_admin:
+        st.markdown("### 🚨 MASTER SWITCH")
+        if sitio_activo:
+            if st.button("🔴 APAGAR SITIO (Kill Switch)", type="primary"):
+                with open(ARCHIVO_ESTADO, "w") as f:
+                    f.write("OFFLINE")
+                st.rerun()
+        else:
+            st.error("El sitio está OFFLINE para los usuarios.")
+            if st.button("🟢 ACTIVAR SITIO", type="primary"):
+                if os.path.exists(ARCHIVO_ESTADO):
+                    os.remove(ARCHIVO_ESTADO)
+                st.rerun()
+        st.markdown("---")
+
     st.markdown("### 🛠️ Configuración")
     st.markdown("---")
     
@@ -196,20 +247,19 @@ with st.sidebar:
 
     st.markdown("<br>" * 5, unsafe_allow_html=True)
     
-    # Botón de limpiar chat
     if st.button("🗑️ Limpiar Sesión"):
         st.session_state.historial_pantalla = []
         st.session_state.motor_ia.historial = []
         st.session_state.motor_ia.cat_actual = None
-        st.session_state.ultimo_acceso = time.time() # Reinicia reloj
+        st.session_state.ultimo_acceso = time.time()
         st.rerun()
 
-    # Botón de cerrado manual en la barra lateral
     if st.button("🚪 Cerrar Acceso"):
         st.session_state.autenticado = False
+        st.session_state.es_admin = False
         st.rerun()
 
-# --- 10. ÁREA DE CHAT (LÓGICA RAG) ---
+# --- 11. ÁREA DE CHAT (LÓGICA RAG CON CANDADO) ---
 if not st.session_state.historial_pantalla:
     st.session_state.historial_pantalla = [{"rol": "assistant", "contenido": "¡Hola, analista! Soy tu experto en flujos y procesos. ¿En qué puedo ayudarte hoy?"}]
 
@@ -217,10 +267,9 @@ for msg in st.session_state.historial_pantalla:
     with st.chat_message(msg["rol"]):
         st.markdown(msg["contenido"])
 
-# Entrada de texto del usuario
 if consulta := st.chat_input("Escribe tu consulta sobre flujos o manuales..."):
-    # ¡CRÍTICO PARA QUE LA SESIÓN NO SE CIERRE MIENTRAS CHATEAN!
     st.session_state.ultimo_acceso = time.time()
+    st.session_state.pensando = True 
     
     with st.chat_message("user"):
         st.markdown(consulta)
@@ -231,3 +280,6 @@ if consulta := st.chat_input("Escribe tu consulta sobre flujos o manuales..."):
             respuesta = st.session_state.motor_ia.procesar_consulta(consulta)
             st.markdown(respuesta)
     st.session_state.historial_pantalla.append({"rol": "assistant", "contenido": respuesta})
+    
+    st.session_state.pensando = False
+    st.rerun()
