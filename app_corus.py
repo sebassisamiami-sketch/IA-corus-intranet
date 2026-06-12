@@ -7,7 +7,7 @@ from streamlit_autorefresh import st_autorefresh
 from chat_procesos import CorusIntranetEngine 
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus.ico", layout="centered")
+st.set_page_config(page_title="IA Corus - Procesos", page_icon="logo_corus2.png", layout="centered")
 
 # --- 2. LECTURA DEL ESTADO GLOBAL DEL SERVIDOR (KILL SWITCH) ---
 ARCHIVO_ESTADO = "estado_servidor.txt"
