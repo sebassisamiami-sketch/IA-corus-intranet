@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import os
+import datetime
 from streamlit_autorefresh import st_autorefresh
 from chat_procesos import CorusIntranetEngine 
 
@@ -15,7 +16,38 @@ if os.path.exists(ARCHIVO_ESTADO):
         if f.read().strip() == "OFFLINE":
             sitio_activo = False
 
-# --- 3. INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
+# --- 3. MOTOR DE AUDITORÍA Y LOGS ---
+ARCHIVO_LOGS = "registro_conexiones.csv"
+
+def registrar_acceso(usuario, rol):
+    """Guarda la marca de tiempo, usuario y rol en un archivo CSV local."""
+    ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Limpiamos las comas del usuario para no romper el CSV
+    usuario_limpio = usuario.replace(",", " ")
+    with open(ARCHIVO_LOGS, "a", encoding="utf-8") as f:
+        f.write(f"{ahora},{usuario_limpio},{rol}\n")
+
+@st.dialog("👁️ Monitor de Accesos Corporativos")
+def mostrar_monitor_conexiones():
+    if os.path.exists(ARCHIVO_LOGS):
+        with open(ARCHIVO_LOGS, "r", encoding="utf-8") as f:
+            lineas = f.readlines()
+        
+        datos = []
+        # Leemos el historial al revés para que lo más reciente salga arriba
+        for linea in reversed(lineas):
+            partes = linea.strip().split(",")
+            if len(partes) == 3:
+                datos.append({"Fecha / Hora": partes[0], "Usuario": partes[1], "Rol": partes[2]})
+        
+        if datos:
+            st.dataframe(datos, use_container_width=True, hide_index=True)
+        else:
+            st.info("El archivo de logs está vacío.")
+    else:
+        st.info("Aún no hay conexiones registradas en el sistema.")
+
+# --- 4. INICIALIZACIÓN DE VARIABLES DE SESIÓN ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if "es_admin" not in st.session_state:
@@ -27,20 +59,18 @@ if "dialogo_abierto" not in st.session_state:
 if "historial_pantalla" not in st.session_state:
     st.session_state.historial_pantalla = []
 
-# Tiempos límite en segundos
-LIMITE_ADVERTENCIA = 300  # 5 minutos para mostrar la alerta
-LIMITE_EXPULSION = 360    # 6 minutos para cerrar la sesión a la fuerza
+LIMITE_ADVERTENCIA = 300  
+LIMITE_EXPULSION = 360    
 
-# --- 4. DISEÑO DEL CUADRO DE DIÁLOGO (POPUP) ---
+# --- 5. DISEÑO DEL CUADRO DE DIÁLOGO DE INACTIVIDAD ---
 @st.dialog("⚠️ Alerta de Inactividad")
 def mostrar_ventana_caducidad():
     st.session_state.dialogo_abierto = True
     st.warning("Tu sesión está a punto de cerrarse por seguridad tras 5 minutos sin actividad.")
-    st.write("¿Deseas mantener la sesión activa?")
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Aceptar (Mantener en línea)", use_container_width=True):
+        if st.button("✅ Mantener en línea", use_container_width=True):
             st.session_state.ultimo_acceso = time.time()
             st.session_state.dialogo_abierto = False
             st.rerun()
@@ -51,70 +81,76 @@ def mostrar_ventana_caducidad():
             st.session_state.dialogo_abierto = False
             st.rerun()
 
-# --- 5. SISTEMA DE LOGIN DE DOBLE CAPA ---
+# --- 6. SISTEMA DE LOGIN DE DOBLE CAPA (CON IDENTIFICACIÓN) ---
 if not st.session_state.autenticado:
-    st.title("🏢 Acceso Restringido Corus")
+    st.title("🏢 Acceso Restringido")
     
-    # Aviso público si el sitio está apagado
     if not sitio_activo:
-        st.error("⚠️ SISTEMA EN MANTENIMIENTO: La plataforma de procesos ha sido desactivada temporalmente. Intenta más tarde.")
+        st.error("⚠️ SISTEMA EN MANTENIMIENTO: La plataforma ha sido desactivada temporalmente.")
 
-    pwd = st.text_input("Contraseña de acceso:", type="password")
-    if pwd:
-        # 1. Intento de acceso como usuario normal
-        if pwd == "FarmeoAura*26*****":
-            if not sitio_activo:
-                st.error("Acceso denegado: El sistema está en mantenimiento.")
-                time.sleep(2)
-                st.rerun()
+    # Usamos st.form para agrupar nombre y contraseña
+    with st.form("formulario_login"):
+        usuario_input = st.text_input("Ingresa tu Nombre y Apellido:", placeholder="Ej. Sebastián Siabato")
+        pwd = st.text_input("Contraseña de acceso:", type="password")
+        btn_ingresar = st.form_submit_button("Iniciar Sesión", use_container_width=True)
+        
+        if btn_ingresar:
+            if not usuario_input.strip() or not pwd:
+                st.warning("Por favor, ingresa tu nombre y la contraseña para continuar.")
             else:
-                st.session_state.autenticado = True
-                st.session_state.es_admin = False
-                st.session_state.ultimo_acceso = time.time()
-                st.success("Acceso concedido. Cargando...")
-                time.sleep(1)
-                st.rerun()
-                
-        # 2. Intento de acceso como Administrador Maestro
-        elif pwd == "Pipeline**2038******":
-            st.session_state.autenticado = True
-            st.session_state.es_admin = True
-            st.session_state.ultimo_acceso = time.time()
-            st.success("⚙️ Acceso de Administrador concedido...")
-            time.sleep(1)
-            st.rerun()
-            
-        else:
-            st.error("Contraseña incorrecta.")
-    st.stop() # Bloquea el resto del código si no hay acceso
+                # 1. Intento de acceso Analista
+                if pwd == "FarmeoAura*26*****":
+                    if not sitio_activo:
+                        st.error("Acceso denegado: El sistema está en mantenimiento.")
+                        time.sleep(2)
+                        st.rerun()
+                    else:
+                        registrar_acceso(usuario_input.strip(), "Analista")
+                        st.session_state.autenticado = True
+                        st.session_state.es_admin = False
+                        st.session_state.ultimo_acceso = time.time()
+                        st.success(f"Bienvenido, {usuario_input}. Cargando...")
+                        time.sleep(1)
+                        st.rerun()
+                        
+                # 2. Intento de acceso Administrador
+                elif pwd == "Pipeline**2038******":
+                    registrar_acceso(usuario_input.strip(), "Administrador")
+                    st.session_state.autenticado = True
+                    st.session_state.es_admin = True
+                    st.session_state.ultimo_acceso = time.time()
+                    st.success("⚙️ Acceso de Administrador concedido...")
+                    time.sleep(1)
+                    st.rerun()
+                    
+                else:
+                    st.error("Contraseña incorrecta.")
+    st.stop() 
 
 # =====================================================================
 # SISTEMA PRINCIPAL (SOLO VISIBLE CON ACCESO CONCEDIDO)
 # =====================================================================
 
-# --- 6. INICIALIZACIÓN DEL MOTOR IA ---
+# --- 7. INICIALIZACIÓN DEL MOTOR IA ---
 if "motor_ia" not in st.session_state:
     with st.spinner("Iniciando infraestructura y cargando datos corporativos..."):
         st.session_state.motor_ia = CorusIntranetEngine()
 
-# --- 7. GUARDIÁN DE SESIÓN Y VIGILANTE DE MANTENIMIENTO ---
+# --- 8. GUARDIÁN DE SESIÓN Y VIGILANTE DE MANTENIMIENTO ---
 if "pensando" not in st.session_state:
     st.session_state.pensando = False
 
-# Expulsión en vivo: Si el admin apaga el sitio, saca a los normales de inmediato
 if not sitio_activo and not st.session_state.es_admin:
     st.session_state.autenticado = False
     st.session_state.dialogo_abierto = False
     st.rerun()
 
-# El reloj solo avanza si la IA no está pensando
 if not st.session_state.pensando:
     st_autorefresh(interval=30000, limit=None, key="reloj_sesion")
 
 tiempo_actual = time.time()
 inactividad = tiempo_actual - st.session_state.ultimo_acceso
 
-# Reglas de expulsión por tiempo
 if inactividad >= LIMITE_EXPULSION:
     st.session_state.autenticado = False
     st.session_state.es_admin = False
@@ -124,7 +160,7 @@ elif inactividad >= LIMITE_ADVERTENCIA:
     if not st.session_state.dialogo_abierto:
         mostrar_ventana_caducidad()
 
-# --- 8. CSS: ESTILO CRISTAL, FOLDERS MODERNOS Y TIP BOX ---
+# --- 9. CSS: ESTILO CRISTAL Y DISEÑO ---
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -190,7 +226,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 9. CABECERA VISUAL ---
+# --- 10. CABECERA VISUAL ---
 col1, col2 = st.columns([1, 4])
 with col1:
     if os.path.exists("logo_corus.png"):
@@ -199,22 +235,28 @@ with col1:
         st.markdown("<h1 style='text-align: center;'>🏢</h1>", unsafe_allow_html=True)
 
 with col2:
-    st.title("Asistente Virtual Corus")
+    st.title("Asistente Virtual")
     st.caption("Inteligencia de Procesos & Gestión del Conocimiento")
 st.divider()
 
-# --- 10. SIDEBAR: PANEL DE CONTROL ---
+# --- 11. SIDEBAR: PANEL DE CONTROL ---
 with st.sidebar:
     # 🔴 PANEL EXCLUSIVO PARA EL ADMINISTRADOR 🔴
     if st.session_state.es_admin:
-        st.markdown("### 🚨 MASTER SWITCH")
+        st.markdown("### 🚨 PANEL MAESTRO")
+        
+        # Botón para abrir el Monitor de Accesos
+        if st.button("👁️ VER CONEXIONES", type="secondary"):
+            mostrar_monitor_conexiones()
+            
+        # Botón de Kill Switch
         if sitio_activo:
-            if st.button("🔴 APAGAR SITIO (Kill Switch)", type="primary"):
+            if st.button("🔴 APAGAR SITIO", type="primary"):
                 with open(ARCHIVO_ESTADO, "w") as f:
                     f.write("OFFLINE")
                 st.rerun()
         else:
-            st.error("El sitio está OFFLINE para los usuarios.")
+            st.error("El sitio está OFFLINE.")
             if st.button("🟢 ACTIVAR SITIO", type="primary"):
                 if os.path.exists(ARCHIVO_ESTADO):
                     os.remove(ARCHIVO_ESTADO)
@@ -239,8 +281,8 @@ with st.sidebar:
     st.markdown(f"""
     <div class="tip-container">
         <p class="tip-text">
-            💡 <b>Tip Pro:</b> Si subes un nuevo archivo PDF a las subcarpetas, escribe 
-            <i>"actualizar base"</i> en el chat para sincronizar la IA automáticamente.
+            💡 <b>Tip Pro:</b> Escribe <i>"actualizar base"</i> en el chat para sincronizar 
+            la IA automáticamente cuando subas nuevos manuales.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -259,9 +301,9 @@ with st.sidebar:
         st.session_state.es_admin = False
         st.rerun()
 
-# --- 11. ÁREA DE CHAT (LÓGICA RAG CON CANDADO) ---
+# --- 12. ÁREA DE CHAT (LÓGICA RAG) ---
 if not st.session_state.historial_pantalla:
-    st.session_state.historial_pantalla = [{"rol": "assistant", "contenido": "¡Hola, analista! Soy tu experto en flujos y procesos. ¿En qué puedo ayudarte hoy?"}]
+    st.session_state.historial_pantalla = [{"rol": "assistant", "contenido": "¡Hola! Soy tu experto en flujos y procesos. ¿En qué puedo ayudarte hoy?"}]
 
 for msg in st.session_state.historial_pantalla:
     with st.chat_message(msg["rol"]):
