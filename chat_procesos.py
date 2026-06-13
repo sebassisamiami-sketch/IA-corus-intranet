@@ -143,7 +143,12 @@ class CorusIntranetEngine:
     def procesar_consulta(self, consulta: str) -> str:
         clean = consulta.lower().strip()
         
-        # --- COMANDO DE TELEMETRÍA (NUEVO) ---
+        # --- RECUPERACIÓN DEL INTERCEPTOR DE SALUDOS ---
+        saludos = ["hola", "hola como estas", "hola cómo estás", "buenos dias", "buenas tardes", "que tal", "saludos"]
+        if clean in saludos or clean.startswith("hola "):
+            return "¡Hola funcionario! ¿En qué te puedo ayudar hoy con tus flujos y procesos?"
+
+        # --- COMANDO DE TELEMETRÍA ---
         if clean == "diagnostico":
             try:
                 datos = self.vector_db.get()
