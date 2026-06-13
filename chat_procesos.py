@@ -26,7 +26,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # -------------------------------------------------------
 
 class SistemaConfig:
-    """Configuración centralizada 100% en RAM (Sin escritura en disco)."""
     MODELO_EMBEDDINGS: str = "sentence-transformers/all-MiniLM-L6-v2"
     MODELO_LLM: str = "gpt-4o-mini"
     CHUNK_SIZE: int = 1200
@@ -49,10 +48,8 @@ class PipelineETL:
     def ejecutar_sincronizacion(self) -> Dict[str, Set[str]]:
         archivos_pdf = glob.glob("**/*.pdf", recursive=True)
         nuevos = [a for a in archivos_pdf if a not in self.archivos_procesados]
-        
         arbol_conocimiento = {}
 
-        # 1. Mapear la estructura actual del disco
         for a in archivos_pdf:
             if "chroma_db" in a or ".git" in a or "__pycache__" in a: continue
             partes = os.path.normpath(a).split(os.sep)
@@ -74,7 +71,6 @@ class PipelineETL:
             chunk_overlap=self.config.CHUNK_OVERLAP
         )
         
-        # 2. Ingesta directa a la memoria RAM
         for archivo in nuevos:
             partes = os.path.normpath(archivo).split(os.sep)
             mod = partes[0] if len(partes) >= 2 else "General"
@@ -82,23 +78,24 @@ class PipelineETL:
             
             try:
                 reader = PdfReader(archivo)
+                texto_total_archivo = 0
                 for i, pag in enumerate(reader.pages):
                     txt = self._limpiar_texto_pdf(pag.extract_text())
                     
-                    # 🔒 FILTRO ESTRICTO: Previene el error de Pydantic NoneType
                     if txt and len(txt) > 5:
                         frags = text_splitter.split_text(txt)
                         frags_limpios = [f for f in frags if f and isinstance(f, str) and str(f).strip()]
                         
                         if frags_limpios:
+                            texto_total_archivo += len(frags_limpios)
                             enriquecidos = [f"[MÓDULO: {mod} | CARPETA: {cat} | PAG: {i+1}]\n{f}" for f in frags_limpios]
                             meta = [{"modulo": mod, "categoria": cat, "fuente": os.path.basename(archivo), "pagina": i+1}] * len(frags_limpios)
                             self.vector_db.add_texts(enriquecidos, meta)
                             
-                # Registramos en la RAM que ya leímos este archivo
                 self.archivos_procesados.add(archivo)
+                print(f"✅ Ingestado: {archivo} ({texto_total_archivo} fragmentos extraídos)")
             except Exception as e: 
-                print(f"❌ Error en la ingesta de {archivo}: {e}")
+                print(f"❌ Error leyendo {archivo}: {e}")
                 
         return arbol_conocimiento
 
@@ -127,11 +124,10 @@ class CorusIntranetEngine:
                 import streamlit as st
                 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
             except Exception:
-                print("⚠️ Alerta: No se encontró la OPENAI_API_KEY en los Secrets.")
+                print("⚠️ Alerta: No se encontró la API KEY.")
         
         try:
             self.embeddings = HuggingFaceEmbeddings(model_name=self.config.MODELO_EMBEDDINGS)
-            # INICIALIZACIÓN EFÍMERA: Sin 'persist_directory'. Vive 100% en RAM.
             self.vector_db = Chroma(embedding_function=self.embeddings)
             self.llm = ChatOpenAI(model=self.config.MODELO_LLM, temperature=self.config.TEMPERATURA_LLM)
         except Exception as e:
@@ -147,7 +143,16 @@ class CorusIntranetEngine:
     def procesar_consulta(self, consulta: str) -> str:
         clean = consulta.lower().strip()
         
-        # 0. Comando Maestro de Reestructuración (Formateo Profundo en RAM)
+        # --- COMANDO DE TELEMETRÍA (NUEVO) ---
+        if clean == "diagnostico":
+            try:
+                datos = self.vector_db.get()
+                total_frags = len(datos['ids']) if datos and 'ids' in datos else 0
+                archivos = list(self.archivos_procesados)
+                return f"🛠️ **REPORTE TÉCNICO DE MEMORIA RAM:**\n- Archivos PDF procesados: {len(archivos)}\n- Fragmentos de texto extraídos: **{total_frags}**\n- Estructura leída: {list(self.arbol_conocimiento.keys())}"
+            except Exception as e:
+                return f"❌ Error en diagnóstico: {e}"
+
         if clean == "formatear sistema":
             try:
                 self.vector_db = Chroma(embedding_function=self.embeddings)
@@ -158,23 +163,13 @@ class CorusIntranetEngine:
             except Exception as e:
                 return f"❌ Error al limpiar la memoria: {e}"
 
-        saludos = ["hola", "hola como estas", "hola cómo estás", "buenos dias", "buenas tardes", "que tal", "saludos"]
-        if clean in saludos or clean.startswith("hola "):
-            return "Hola funcionario, ¿en qué te puedo ayudar?"
-
         comandos_actualizar = ["actualizar base", "cargar manuales", "actualizar manuales", "cargar nuevos archivos"]
         if any(c in clean for c in comandos_actualizar):
-            print("\n🔄 [SISTEMA] Escaneando directorios en memoria...")
             etl = PipelineETL(self.vector_db, self.archivos_procesados)
             self.arbol_conocimiento = etl.ejecutar_sincronizacion()
             todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
             self.router.categorias = todas_cats
-            return "🤖 **SISTEMA:** ¡Sincronización completada en RAM! Los archivos fueron procesados sin errores de disco."
-
-        frases_cierre = ["caso solucionado", "caso cerrado", "ya quedo", "gracias", "listo", "fin"]
-        if any(f in clean for f in frases_cierre):
-            self.historial, self.cat_actual = [], None
-            return "🤖 **SISTEMA:** Caso cerrado formalmente. Estoy listo para procesar un nuevo caso."
+            return "🤖 **SISTEMA:** ¡Sincronización completada en RAM! Ejecuta 'diagnostico' para ver cuántos textos extraje."
 
         # --- FASE 1: ENRUTAMIENTO INTELIGENTE DOBLE ---
         filtros = {}
@@ -203,8 +198,13 @@ class CorusIntranetEngine:
             docs = self.vector_db.similarity_search(consulta, k=20)
 
         docs_validos = [d.page_content for d in docs if d and d.page_content]
+        
+        # 🚨 VALIDACIÓN: Si no encontró nada en la RAM, no gastamos saldo de OpenAI
+        if not docs_validos:
+            return f"🤖 **SISTEMA:** Busqué en {etiqueta_contexto}, pero la base de datos no me devolvió ningún texto. \n\n*Nota de analista: Verifica si los PDFs son legibles (no imágenes escaneadas) ejecutando el comando 'diagnostico'.*"
+
         contexto_aislado = "\n\n".join(docs_validos)
-        contexto_previo = "\n".join(self.historial[-4:]) if self.historial else "Inicio de la conversación."
+        contexto_previo = "\n".join(self.historial[-4:]) if self.historial else "Inicio."
 
         prompt_final = f"""Eres un Consultor y Analista de Procesos Senior. 
 Tu misión es conversar fluidamente con el usuario y proveer recomendaciones técnicas estructuradas basadas estrictamente en los documentos corporativos.
@@ -226,7 +226,6 @@ CONSULTA DEL ANALISTA: {consulta}"""
         try:
             for chunk in self.llm.stream(prompt_final):
                 res += chunk.content
-            
             self.historial.extend([f"Q: {consulta}", f"A: {res}"])
             return res
         except Exception as e:
