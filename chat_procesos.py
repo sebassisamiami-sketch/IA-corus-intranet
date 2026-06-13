@@ -1,5 +1,14 @@
 import os
 import sys
+import warnings
+import glob
+import re
+from typing import List, Optional, Set, Dict
+from pypdf import PdfReader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_openai import ChatOpenAI
 
 # --- PARCHES DE INFRAESTRUCTURA PARA STREAMLIT CLOUD ---
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
@@ -11,24 +20,13 @@ try:
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 except ImportError:
     pass
-# -------------------------------------------------------
-
-import warnings
-import glob
-import re
-from typing import List, Optional, Set, Dict
-from pypdf import PdfReader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain_openai import ChatOpenAI
 
 warnings.filterwarnings("ignore")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# -------------------------------------------------------
 
 class SistemaConfig:
-    CARPETA_DB: str = "./chroma_db"
-    ARCHIVO_REGISTRO: str = "archivos_indexados.txt"
+    """Configuración centralizada 100% en RAM (Sin escritura en disco)."""
     MODELO_EMBEDDINGS: str = "sentence-transformers/all-MiniLM-L6-v2"
     MODELO_LLM: str = "gpt-4o-mini"
     CHUNK_SIZE: int = 1200
@@ -36,9 +34,10 @@ class SistemaConfig:
     TEMPERATURA_LLM: float = 0.0  
 
 class PipelineETL:
-    def __init__(self, vector_db: Chroma):
+    def __init__(self, vector_db: Chroma, archivos_procesados: set):
         self.vector_db = vector_db
         self.config = SistemaConfig()
+        self.archivos_procesados = archivos_procesados
 
     def _limpiar_texto_pdf(self, texto: str) -> str:
         if texto is None: return ""
@@ -48,23 +47,12 @@ class PipelineETL:
         return texto.strip()
 
     def ejecutar_sincronizacion(self) -> Dict[str, Set[str]]:
-        db_vacia = True
-        try:
-            datos_db = self.vector_db.get()
-            if datos_db and datos_db.get('ids') and len(datos_db['ids']) > 0: 
-                db_vacia = False
-        except Exception: 
-            pass
-
-        if os.path.exists(self.config.ARCHIVO_REGISTRO) and db_vacia:
-            os.remove(self.config.ARCHIVO_REGISTRO)
-            
         archivos_pdf = glob.glob("**/*.pdf", recursive=True)
-        procesados = set(open(self.config.ARCHIVO_REGISTRO, "r", encoding="utf-8").read().splitlines()) if os.path.exists(self.config.ARCHIVO_REGISTRO) else set()
-        nuevos = [a for a in archivos_pdf if a not in procesados]
+        nuevos = [a for a in archivos_pdf if a not in self.archivos_procesados]
         
         arbol_conocimiento = {}
 
+        # 1. Mapear la estructura actual del disco
         for a in archivos_pdf:
             if "chroma_db" in a or ".git" in a or "__pycache__" in a: continue
             partes = os.path.normpath(a).split(os.sep)
@@ -86,6 +74,7 @@ class PipelineETL:
             chunk_overlap=self.config.CHUNK_OVERLAP
         )
         
+        # 2. Ingesta directa a la memoria RAM
         for archivo in nuevos:
             partes = os.path.normpath(archivo).split(os.sep)
             mod = partes[0] if len(partes) >= 2 else "General"
@@ -96,19 +85,18 @@ class PipelineETL:
                 for i, pag in enumerate(reader.pages):
                     txt = self._limpiar_texto_pdf(pag.extract_text())
                     
-                    # 🔒 FILTRO ESTRICTO: Solo si hay texto real, lo procesamos
+                    # 🔒 FILTRO ESTRICTO: Previene el error de Pydantic NoneType
                     if txt and len(txt) > 5:
                         frags = text_splitter.split_text(txt)
-                        # Segunda validación: quitamos fragmentos vacíos o nulos
-                        frags_limpios = [f for f in frags if f and str(f).strip()]
+                        frags_limpios = [f for f in frags if f and isinstance(f, str) and str(f).strip()]
                         
                         if frags_limpios:
                             enriquecidos = [f"[MÓDULO: {mod} | CARPETA: {cat} | PAG: {i+1}]\n{f}" for f in frags_limpios]
                             meta = [{"modulo": mod, "categoria": cat, "fuente": os.path.basename(archivo), "pagina": i+1}] * len(frags_limpios)
                             self.vector_db.add_texts(enriquecidos, meta)
                             
-                with open(self.config.ARCHIVO_REGISTRO, "a", encoding="utf-8") as f: 
-                    f.write(archivo + "\n")
+                # Registramos en la RAM que ya leímos este archivo
+                self.archivos_procesados.add(archivo)
             except Exception as e: 
                 print(f"❌ Error en la ingesta de {archivo}: {e}")
                 
@@ -141,18 +129,17 @@ class CorusIntranetEngine:
             except Exception:
                 print("⚠️ Alerta: No se encontró la OPENAI_API_KEY en los Secrets.")
         
-        if not os.path.exists(self.config.CARPETA_DB):
-            os.makedirs(self.config.CARPETA_DB, exist_ok=True)
-
         try:
             self.embeddings = HuggingFaceEmbeddings(model_name=self.config.MODELO_EMBEDDINGS)
-            self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
+            # INICIALIZACIÓN EFÍMERA: Sin 'persist_directory'. Vive 100% en RAM.
+            self.vector_db = Chroma(embedding_function=self.embeddings)
             self.llm = ChatOpenAI(model=self.config.MODELO_LLM, temperature=self.config.TEMPERATURA_LLM)
         except Exception as e:
             print(f"❌ FALLO CRÍTICO DE CONEXIÓN: {e}")
             sys.exit(1)
             
-        self.arbol_conocimiento = PipelineETL(self.vector_db).ejecutar_sincronizacion()
+        self.archivos_procesados = set()
+        self.arbol_conocimiento = PipelineETL(self.vector_db, self.archivos_procesados).ejecutar_sincronizacion()
         todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
         self.router = SupervisorEnrutamiento(self.llm, todas_cats)
         self.historial, self.cat_actual = [], None
@@ -160,20 +147,16 @@ class CorusIntranetEngine:
     def procesar_consulta(self, consulta: str) -> str:
         clean = consulta.lower().strip()
         
-        # 0. Comando Maestro de Reestructuración (Formateo Profundo)
+        # 0. Comando Maestro de Reestructuración (Formateo Profundo en RAM)
         if clean == "formatear sistema":
             try:
-                # Destruye la base de datos vieja
-                self.vector_db.delete_collection()
-                # La reconstruye desde cero inmediatamente para evitar errores de conexión
-                self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
-                if os.path.exists(self.config.ARCHIVO_REGISTRO): 
-                    os.remove(self.config.ARCHIVO_REGISTRO)
+                self.vector_db = Chroma(embedding_function=self.embeddings)
+                self.archivos_procesados = set()
                 self.arbol_conocimiento = {}
                 self.router.categorias = set()
-                return "⚠️ **SISTEMA:** Base de datos destruida y purgada. Por favor, escribe 'actualizar base' para reindexar limpiamente."
+                return "⚠️ **SISTEMA:** Memoria RAM purgada. Escribe 'actualizar base' para volver a cargar los manuales."
             except Exception as e:
-                return f"❌ Error al formatear la base de datos: {e}"
+                return f"❌ Error al limpiar la memoria: {e}"
 
         saludos = ["hola", "hola como estas", "hola cómo estás", "buenos dias", "buenas tardes", "que tal", "saludos"]
         if clean in saludos or clean.startswith("hola "):
@@ -181,12 +164,12 @@ class CorusIntranetEngine:
 
         comandos_actualizar = ["actualizar base", "cargar manuales", "actualizar manuales", "cargar nuevos archivos"]
         if any(c in clean for c in comandos_actualizar):
-            print("\n🔄 [SISTEMA] Escaneando directorios y metadatos...")
-            etl = PipelineETL(self.vector_db)
+            print("\n🔄 [SISTEMA] Escaneando directorios en memoria...")
+            etl = PipelineETL(self.vector_db, self.archivos_procesados)
             self.arbol_conocimiento = etl.ejecutar_sincronizacion()
             todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
             self.router.categorias = todas_cats
-            return "🤖 **SISTEMA:** ¡Sincronización completada! Los archivos fueron procesados y purgados de errores."
+            return "🤖 **SISTEMA:** ¡Sincronización completada en RAM! Los archivos fueron procesados sin errores de disco."
 
         frases_cierre = ["caso solucionado", "caso cerrado", "ya quedo", "gracias", "listo", "fin"]
         if any(f in clean for f in frases_cierre):
@@ -219,7 +202,6 @@ class CorusIntranetEngine:
         else:
             docs = self.vector_db.similarity_search(consulta, k=20)
 
-        # Filtro de seguridad post-extracción para ignorar "Nones" si Chroma llega a fallar
         docs_validos = [d.page_content for d in docs if d and d.page_content]
         contexto_aislado = "\n\n".join(docs_validos)
         contexto_previo = "\n".join(self.historial[-4:]) if self.historial else "Inicio de la conversación."
