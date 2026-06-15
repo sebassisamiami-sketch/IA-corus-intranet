@@ -10,7 +10,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
 
-# --- PARCHES DE INFRAESTRUCTURA PARA STREAMLIT CLOUD ---
+# --- PARCHES DE INFRAESTRUCTURA ---
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 if "HOME" not in os.environ:
     os.environ["HOME"] = "/tmp"
@@ -23,7 +23,6 @@ except ImportError:
 
 warnings.filterwarnings("ignore")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-# -------------------------------------------------------
 
 class SistemaConfig:
     MODELO_EMBEDDINGS: str = "sentence-transformers/all-MiniLM-L6-v2"
@@ -93,7 +92,7 @@ class PipelineETL:
                             self.vector_db.add_texts(enriquecidos, meta)
                             
                 self.archivos_procesados.add(archivo)
-                print(f"✅ Ingestado: {archivo} ({texto_total_archivo} fragmentos extraídos)")
+                print(f"✅ Ingestado: {archivo} ({texto_total_archivo} fragmentos)")
             except Exception as e: 
                 print(f"❌ Error leyendo {archivo}: {e}")
                 
@@ -124,10 +123,11 @@ class CorusIntranetEngine:
                 import streamlit as st
                 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
             except Exception:
-                print("⚠️ Alerta: No se encontró la API KEY.")
+                pass
         
         try:
             self.embeddings = HuggingFaceEmbeddings(model_name=self.config.MODELO_EMBEDDINGS)
+            # Motor 100% en RAM
             self.vector_db = Chroma(embedding_function=self.embeddings)
             self.llm = ChatOpenAI(model=self.config.MODELO_LLM, temperature=self.config.TEMPERATURA_LLM)
         except Exception as e:
@@ -138,45 +138,47 @@ class CorusIntranetEngine:
         self.arbol_conocimiento = PipelineETL(self.vector_db, self.archivos_procesados).ejecutar_sincronizacion()
         todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
         self.router = SupervisorEnrutamiento(self.llm, todas_cats)
-        self.historial, self.cat_actual = [], None
 
-    def procesar_consulta(self, consulta: str) -> str:
+    # 🚨 CAMBIO CRÍTICO: Ahora recibe el historial aislado del usuario, no guarda nada internamente.
+    def procesar_consulta(self, consulta: str, contexto_previo: str, rol_usuario: str = "Analista") -> str:
         clean = consulta.lower().strip()
         
-        # --- RECUPERACIÓN DEL INTERCEPTOR DE SALUDOS ---
         saludos = ["hola", "hola como estas", "hola cómo estás", "buenos dias", "buenas tardes", "que tal", "saludos"]
         if clean in saludos or clean.startswith("hola "):
-            return "¡Hola funcionario! ¿En qué te puedo ayudar hoy con tus flujos y procesos?"
+            return f"¡Hola {rol_usuario}! ¿En qué te puedo ayudar hoy con tus flujos y procesos?"
 
-        # --- COMANDO DE TELEMETRÍA ---
-        if clean == "diagnostico":
-            try:
-                datos = self.vector_db.get()
-                total_frags = len(datos['ids']) if datos and 'ids' in datos else 0
-                archivos = list(self.archivos_procesados)
-                return f"🛠️ **REPORTE TÉCNICO DE MEMORIA RAM:**\n- Archivos PDF procesados: {len(archivos)}\n- Fragmentos de texto extraídos: **{total_frags}**\n- Estructura leída: {list(self.arbol_conocimiento.keys())}"
-            except Exception as e:
-                return f"❌ Error en diagnóstico: {e}"
+        # --- COMANDOS EXCLUSIVOS DE ADMINISTRADOR ---
+        if rol_usuario == "Administrador":
+            if clean == "diagnostico":
+                try:
+                    datos = self.vector_db.get()
+                    total_frags = len(datos['ids']) if datos and 'ids' in datos else 0
+                    archivos = list(self.archivos_procesados)
+                    return f"🛠️ **REPORTE TÉCNICO EN MEMORIA RAM:**\n- Archivos PDF procesados: {len(archivos)}\n- Fragmentos extraídos: **{total_frags}**\n- Estructura: {list(self.arbol_conocimiento.keys())}"
+                except Exception as e:
+                    return f"❌ Error en diagnóstico: {e}"
 
-        if clean == "formatear sistema":
-            try:
-                self.vector_db = Chroma(embedding_function=self.embeddings)
-                self.archivos_procesados = set()
-                self.arbol_conocimiento = {}
-                self.router.categorias = set()
-                return "⚠️ **SISTEMA:** Memoria RAM purgada. Escribe 'actualizar base' para volver a cargar los manuales."
-            except Exception as e:
-                return f"❌ Error al limpiar la memoria: {e}"
+            if clean == "formatear sistema":
+                try:
+                    self.vector_db = Chroma(embedding_function=self.embeddings)
+                    self.archivos_procesados = set()
+                    self.arbol_conocimiento = {}
+                    self.router.categorias = set()
+                    return "⚠️ **SISTEMA:** Memoria RAM purgada. Escribe 'actualizar base' para volver a cargar."
+                except Exception as e:
+                    return f"❌ Error al limpiar la memoria: {e}"
 
-        comandos_actualizar = ["actualizar base", "cargar manuales", "actualizar manuales", "cargar nuevos archivos"]
-        if any(c in clean for c in comandos_actualizar):
-            etl = PipelineETL(self.vector_db, self.archivos_procesados)
-            self.arbol_conocimiento = etl.ejecutar_sincronizacion()
-            todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
-            self.router.categorias = todas_cats
-            return "🤖 **SISTEMA:** ¡Sincronización completada en RAM! Ejecuta 'diagnostico' para ver cuántos textos extraje."
+            comandos_actualizar = ["actualizar base", "cargar manuales", "actualizar manuales"]
+            if any(c in clean for c in comandos_actualizar):
+                etl = PipelineETL(self.vector_db, self.archivos_procesados)
+                self.arbol_conocimiento = etl.ejecutar_sincronizacion()
+                todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
+                self.router.categorias = todas_cats
+                return "🤖 **SISTEMA:** ¡Sincronización en RAM completada! Base de conocimiento al 100%."
+        elif clean in ["diagnostico", "formatear sistema", "actualizar base"]:
+            return "🚫 **ACCESO DENEGADO:** Este comando es exclusivo para Administradores del sistema."
 
-        # --- FASE 1: ENRUTAMIENTO INTELIGENTE DOBLE ---
+        # --- FASE 1: ENRUTAMIENTO DOBLE ---
         filtros = {}
         modulo_detectado = None
         etiqueta_contexto = "toda la documentación corporativa"
@@ -196,7 +198,7 @@ class CorusIntranetEngine:
                 filtros["categoria"] = cat_detectada
                 etiqueta_contexto = f"la subcarpeta: {cat_detectada}"
 
-        # --- FASE 2: BÚSQUEDA SEMÁNTICA RAG ---
+        # --- FASE 2: BÚSQUEDA RAG ---
         if filtros:
             docs = self.vector_db.similarity_search(consulta, k=20, filter=filtros)
         else:
@@ -204,46 +206,31 @@ class CorusIntranetEngine:
 
         docs_validos = [d.page_content for d in docs if d and d.page_content]
         
-        # 🚨 VALIDACIÓN: Si no encontró nada en la RAM, no gastamos saldo de OpenAI
         if not docs_validos:
-            return f"🤖 **SISTEMA:** Busqué en {etiqueta_contexto}, pero la base de datos no me devolvió ningún texto. \n\n*Nota de analista: Verifica si los PDFs son legibles (no imágenes escaneadas) ejecutando el comando 'diagnostico'.*"
+            return f"🤖 **SISTEMA:** Busqué en {etiqueta_contexto}, pero no encontré registros legibles. *(Verifica el OCR de los PDF)*."
 
         contexto_aislado = "\n\n".join(docs_validos)
-        contexto_previo = "\n".join(self.historial[-4:]) if self.historial else "Inicio."
 
         prompt_final = f"""Eres un Consultor y Analista de Procesos Senior. 
-Tu misión es conversar fluidamente con el usuario y proveer recomendaciones técnicas estructuradas basadas estrictamente en los documentos corporativos.
+Tu misión es conversar fluidamente con el usuario y proveer recomendaciones técnicas.
 
-REGLAS DE ANÁLISIS:
-1. Base de Conocimiento: Extrae los pasos usando el contexto de '{etiqueta_contexto}' provisto abajo.
-2. Activación del Candado: Si los fragmentos no contienen información útil para el escenario, responde exactamente: "Compañero, revisando {etiqueta_contexto}, no encontré información documentada que nos sirva para este escenario específico."
-3. Tono: Responde de forma estructurada, limpia y profesional en ESPAÑOL.
+REGLAS:
+1. Extrae los pasos usando el contexto de '{etiqueta_contexto}' provisto abajo.
+2. Si los fragmentos no contienen información útil para el escenario, responde exactamente: "Compañero, revisando {etiqueta_contexto}, no encontré información documentada que nos sirva para este escenario específico."
+3. Responde de forma profesional en ESPAÑOL.
 
-HISTORIAL PREVIO:
+HISTORIAL PREVIO DE ESTA SESIÓN:
 {contexto_previo}
 
 DOCUMENTACIÓN EXTRAÍDA ({etiqueta_contexto}):
 {contexto_aislado}
 
-CONSULTA DEL ANALISTA: {consulta}"""
+CONSULTA DEL USUARIO: {consulta}"""
 
         res = ""
         try:
             for chunk in self.llm.stream(prompt_final):
                 res += chunk.content
-            self.historial.extend([f"Q: {consulta}", f"A: {res}"])
             return res
         except Exception as e:
-            return f"❌ ERROR TÉCNICO EN EL LLAMADO DE LA API CLOUD: {e}"
-
-if __name__ == "__main__":
-    intranet_kms = CorusIntranetEngine()
-    while True:
-        try:
-            consulta = input("\n👉 Analista: ")
-            if consulta.lower().strip() in ['exit', 'salir', 'quit']: break
-            if not consulta.strip(): continue
-            salida = intranet_kms.procesar_consulta(consulta)
-            if salida: print(salida)
-        except KeyboardInterrupt: 
-            break
+            return f"❌ ERROR TÉCNICO API: {e}"
