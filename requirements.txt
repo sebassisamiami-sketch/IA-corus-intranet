@@ -1,10 +1,13 @@
 streamlit
+streamlit-autorefresh
+langchain
 langchain-openai
 langchain-huggingface
 langchain-community
 chromadb
-pypdf
-sentence-transformers
 pysqlite3-binary
-protobuf<=3.20.3
-streamlit-autorefresh
+sentence-transformers
+transformers
+torch
+torchvision
+pypdf
