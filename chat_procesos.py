@@ -3,6 +3,7 @@ import sys
 import warnings
 import glob
 import re
+import shutil
 from typing import List, Optional, Set, Dict
 from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -25,6 +26,9 @@ warnings.filterwarnings("ignore")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 class SistemaConfig:
+    # 🚨 SOLUCIÓN MAGISTRAL: Usamos la carpeta temporal de Linux para evadir el bloqueo
+    # y permitir que todos los usuarios compartan la misma base de datos.
+    CARPETA_DB: str = "/tmp/corus_chroma_db"
     MODELO_EMBEDDINGS: str = "sentence-transformers/all-MiniLM-L6-v2"
     MODELO_LLM: str = "gpt-4o-mini"
     CHUNK_SIZE: int = 1200
@@ -125,10 +129,14 @@ class CorusIntranetEngine:
             except Exception:
                 pass
         
+        # Crear la carpeta temporal si no existe
+        if not os.path.exists(self.config.CARPETA_DB):
+            os.makedirs(self.config.CARPETA_DB, exist_ok=True)
+
         try:
             self.embeddings = HuggingFaceEmbeddings(model_name=self.config.MODELO_EMBEDDINGS)
-            # Motor 100% en RAM
-            self.vector_db = Chroma(embedding_function=self.embeddings)
+            # 🚨 Ahora Chroma guarda en disco compartido (/tmp), solucionando la sincronización de usuarios
+            self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
             self.llm = ChatOpenAI(model=self.config.MODELO_LLM, temperature=self.config.TEMPERATURA_LLM)
         except Exception as e:
             print(f"❌ FALLO CRÍTICO DE CONEXIÓN: {e}")
@@ -139,8 +147,7 @@ class CorusIntranetEngine:
         todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
         self.router = SupervisorEnrutamiento(self.llm, todas_cats)
 
-    # 🚨 CAMBIO CRÍTICO: Ahora recibe el historial aislado del usuario, no guarda nada internamente.
-    def procesar_consulta(self, consulta: str, contexto_previo: str, rol_usuario: str = "Analista") -> str:
+    def procesar_consulta(self, consulta: str, contexto_previo: str, rol_usuario: str) -> str:
         clean = consulta.lower().strip()
         
         saludos = ["hola", "hola como estas", "hola cómo estás", "buenos dias", "buenas tardes", "que tal", "saludos"]
@@ -154,19 +161,27 @@ class CorusIntranetEngine:
                     datos = self.vector_db.get()
                     total_frags = len(datos['ids']) if datos and 'ids' in datos else 0
                     archivos = list(self.archivos_procesados)
-                    return f"🛠️ **REPORTE TÉCNICO EN MEMORIA RAM:**\n- Archivos PDF procesados: {len(archivos)}\n- Fragmentos extraídos: **{total_frags}**\n- Estructura: {list(self.arbol_conocimiento.keys())}"
+                    return f"🛠️ **REPORTE TÉCNICO COMPARTIDO:**\n- Archivos PDF procesados: {len(archivos)}\n- Fragmentos extraídos: **{total_frags}**\n- Estructura: {list(self.arbol_conocimiento.keys())}"
                 except Exception as e:
                     return f"❌ Error en diagnóstico: {e}"
 
             if clean == "formatear sistema":
                 try:
-                    self.vector_db = Chroma(embedding_function=self.embeddings)
+                    # Borramos la base de datos de la carpeta compartida
+                    try:
+                        self.vector_db.delete_collection()
+                    except: pass
+                    if os.path.exists(self.config.CARPETA_DB):
+                        shutil.rmtree(self.config.CARPETA_DB)
+                    os.makedirs(self.config.CARPETA_DB, exist_ok=True)
+                    
+                    self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
                     self.archivos_procesados = set()
                     self.arbol_conocimiento = {}
                     self.router.categorias = set()
-                    return "⚠️ **SISTEMA:** Memoria RAM purgada. Escribe 'actualizar base' para volver a cargar."
+                    return "⚠️ **SISTEMA:** Base de datos compartida purgada. Escribe 'actualizar base' para volver a cargar."
                 except Exception as e:
-                    return f"❌ Error al limpiar la memoria: {e}"
+                    return f"❌ Error al limpiar: {e}"
 
             comandos_actualizar = ["actualizar base", "cargar manuales", "actualizar manuales"]
             if any(c in clean for c in comandos_actualizar):
@@ -174,9 +189,9 @@ class CorusIntranetEngine:
                 self.arbol_conocimiento = etl.ejecutar_sincronizacion()
                 todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
                 self.router.categorias = todas_cats
-                return "🤖 **SISTEMA:** ¡Sincronización en RAM completada! Base de conocimiento al 100%."
+                return "🤖 **SISTEMA:** ¡Sincronización completada! Ahora TODOS los usuarios pueden ver esta información."
         elif clean in ["diagnostico", "formatear sistema", "actualizar base"]:
-            return "🚫 **ACCESO DENEGADO:** Este comando es exclusivo para Administradores del sistema."
+            return "🚫 **ACCESO DENEGADO:** Este comando es exclusivo para Administradores."
 
         # --- FASE 1: ENRUTAMIENTO DOBLE ---
         filtros = {}
@@ -207,7 +222,7 @@ class CorusIntranetEngine:
         docs_validos = [d.page_content for d in docs if d and d.page_content]
         
         if not docs_validos:
-            return f"🤖 **SISTEMA:** Busqué en {etiqueta_contexto}, pero no encontré registros legibles. *(Verifica el OCR de los PDF)*."
+            return f"🤖 **SISTEMA:** Busqué en {etiqueta_contexto}, pero no encontré registros legibles."
 
         contexto_aislado = "\n\n".join(docs_validos)
 
