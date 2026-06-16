@@ -10,36 +10,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
-def procesar_consulta(self, consulta: str, contexto_previo: str, rol_usuario: str) -> str:
-        clean = consulta.lower().strip()
-        
-        # --- 1. FILTRO DE SALUDOS ---
-        saludos = ["hola", "hola como estas", "hola cómo estás", "buenos dias", "buenas tardes", "que tal", "saludos"]
-        if clean in saludos or clean.startswith("hola "):
-            return f"¡Hola {rol_usuario}! ¿En qué te puedo ayudar hoy con tus flujos y procesos?"
 
-        # --- 2. FILTRO DE CIERRE Y LIBERACIÓN DE MEMORIA (EL BUGFIX) ---
-        frases_cierre = ["gracias", "caso cerrado", "ya quedo", "listo", "fin", "muchas gracias"]
-        if any(f in clean for f in frases_cierre):
-            # Aquí liberamos cualquier filtro de búsqueda activo
-            return "🤖 **SISTEMA:** Caso cerrado formalmente. Memoria de contexto liberada. Estoy listo para procesar un nuevo caso, ¿en qué te puedo ayudar?"
-
-        # --- 3. COMANDOS DE ADMINISTRADOR ---
-        if rol_usuario == "Administrador":
-            if clean == "diagnostico":
-                # ... (tu código de diagnóstico igual)
-                datos = self.vector_db.get()
-                total_frags = len(datos['ids']) if datos and 'ids' in datos else 0
-                return f"🛠️ **REPORTE TÉCNICO:** Fragmentos extraídos: {total_frags}"
-            
-            if clean == "actualizar base":
-                etl = PipelineETL(self.vector_db, self.archivos_procesados)
-                self.arbol_conocimiento = etl.ejecutar_sincronizacion()
-                return "🤖 **SISTEMA:** Sincronización completada. Base lista."
-        
-        # --- 4. LÓGICA DE BÚSQUEDA (EL RESTO DEL CÓDIGO IGUAL) ---
-        # (Aquí continúa tu lógica de filtros y similarity_search)
-        # ...
 # --- PARCHES DE INFRAESTRUCTURA ---
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 if "HOME" not in os.environ:
@@ -55,8 +26,7 @@ warnings.filterwarnings("ignore")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 class SistemaConfig:
-
-    # y permitir que todos los usuarios compartan la misma base de datos.
+    # 🚨 Usamos la carpeta temporal para que todos los usuarios compartan la misma base de datos.
     CARPETA_DB: str = "/tmp/corus_chroma_db"
     MODELO_EMBEDDINGS: str = "sentence-transformers/all-MiniLM-L6-v2"
     MODELO_LLM: str = "gpt-4o-mini"
@@ -164,7 +134,6 @@ class CorusIntranetEngine:
 
         try:
             self.embeddings = HuggingFaceEmbeddings(model_name=self.config.MODELO_EMBEDDINGS)
-            # 🚨 Ahora Chroma guarda en disco compartido (/tmp), solucionando la sincronización de usuarios
             self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
             self.llm = ChatOpenAI(model=self.config.MODELO_LLM, temperature=self.config.TEMPERATURA_LLM)
         except Exception as e:
@@ -179,11 +148,18 @@ class CorusIntranetEngine:
     def procesar_consulta(self, consulta: str, contexto_previo: str, rol_usuario: str) -> str:
         clean = consulta.lower().strip()
         
+        # --- 1. FILTRO DE SALUDOS ---
         saludos = ["hola", "hola como estas", "hola cómo estás", "buenos dias", "buenas tardes", "que tal", "saludos"]
         if clean in saludos or clean.startswith("hola "):
             return f"¡Hola {rol_usuario}! ¿En qué te puedo ayudar hoy con tus flujos y procesos?"
 
-        # --- COMANDOS EXCLUSIVOS DE ADMINISTRADOR ---
+        # --- 2. FILTRO DE CIERRE Y LIBERACIÓN DE MEMORIA (EL BUGFIX APLICADO CORRECTAMENTE) ---
+        frases_cierre = ["gracias", "caso cerrado", "ya quedo", "listo", "fin", "muchas gracias"]
+        if any(f in clean for f in frases_cierre):
+            # Aquí el sistema detecta que terminaste y NO busca en la base de datos, evitando el bug
+            return "🤖 **SISTEMA:** Caso cerrado formalmente. Memoria de contexto liberada. Estoy listo para procesar un nuevo caso, ¿en qué te puedo ayudar?"
+
+        # --- 3. COMANDOS EXCLUSIVOS DE ADMINISTRADOR ---
         if rol_usuario == "Administrador":
             if clean == "diagnostico":
                 try:
