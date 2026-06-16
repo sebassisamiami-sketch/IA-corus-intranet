@@ -1,32 +1,9 @@
-# CorusIntranetEngine v2.0 - DEPENDENCIAS BLOQUEADAS
-# Fecha: 2026
-# Nota: Versiones compatibles entre sí
-
-# Core Framework
 streamlit==1.35.0
-streamlit-autorefresh==0.0.1
-
-# LangChain & LLM
 langchain==0.1.14
 langchain-openai==0.1.1
 langchain-community==0.0.19
 openai==1.10.0
-
-# Vector DB & Embeddings
 chromadb==0.4.24
-sentence-transformers==2.2.2
-
-# Document Processing
-pypdf==4.0.1
-
-# Data & Utilities
-pydantic==2.6.4
-numpy==1.24.3
-
-# ML/Deep Learning (CPU)
-torch==2.2.0
-
-# Optional: Additional utilities
+PyPDF2==4.0.1
 python-dotenv==1.0.0
-requests==2.31.0
-
+pandas==2.1.3
