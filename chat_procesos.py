@@ -1,7 +1,7 @@
 # chat_procesos.py - Procesador de Chat
 """
 Gestor de procesamiento de mensajes de chat
-Incluye enriquecimiento de prompts por rol y persistencia
+Incluye enriquecimiento de prompts por rol, persistencia y ahorro de tokens
 """
 
 import json
@@ -20,13 +20,7 @@ class ChatProcessor:
     """
     
     def __init__(self, usuario: str, rol: str):
-        """
-        Inicializar processor
-        
-        Args:
-            usuario: Nombre del usuario
-            rol: Rol del usuario (Analista/Administrador)
-        """
+        """Inicializar processor"""
         self.usuario = usuario
         self.rol = rol
         self.motor_ia = obtener_motor()
@@ -34,7 +28,6 @@ class ChatProcessor:
         self.archivo_sesion = f"data/sessions/{usuario}_{rol}.json"
         
         Path("data/sessions").mkdir(parents=True, exist_ok=True)
-        
         logger.info(f"ChatProcessor iniciado para {usuario} ({rol})")
     
     def _cargar_memoria_usuario(self):
@@ -50,7 +43,6 @@ class ChatProcessor:
     
     def _enriquecer_prompt(self, mensaje: str) -> str:
         """Enriquecer prompt según rol"""
-        
         prompts_rol = {
             "Administrador": f"""
             Eres un asistente administrativo corporativo de CORUS.
@@ -79,23 +71,10 @@ class ChatProcessor:
         
         return prompts_rol.get(self.rol, "") + f"\n\nPregunta: {mensaje}"
     
-    def procesar_mensaje(
-        self,
-        mensaje: str,
-        contexto: Dict = None
-    ) -> Dict[str, Any]:
-        """
-        Procesar mensaje del usuario
-        
-        Args:
-            mensaje: Mensaje del usuario
-            contexto: Contexto adicional (rol, etc)
-        
-        Returns:
-            Dict con respuesta y metadata
-        """
+    def procesar_mensaje(self, mensaje: str, contexto: Dict = None) -> Dict[str, Any]:
+        """Procesar mensaje del usuario y gestionar salidas tempranas"""
         try:
-            # Validaciones
+            # Validaciones de integridad
             if not mensaje or len(mensaje.strip()) < 1:
                 return {
                     'exitoso': False,
@@ -115,6 +94,26 @@ class ChatProcessor:
                     'usuario': self.usuario,
                     'rol': self.rol
                 }
+
+            # 🚨 FILTRO INTELIGENTE DE CIERRE DE CASOS (AHORRO DE TOKENS) 🚨
+            clean_msg = mensaje.lower().strip()
+            frases_cierre = ["gracias", "caso cerrado", "ya quedo", "listo", "fin", "ok gracias", "muchas gracias"]
+            
+            if any(f == clean_msg or clean_msg.startswith(f) for f in frases_cierre):
+                logger.info("🛑 Comando de cierre detectado. Abortando consumo de IA OpenAI.")
+                respuesta_cierre = {
+                    'exitoso': True,
+                    'mensaje_original': mensaje,
+                    'respuesta': "🤖 **SISTEMA:** Caso cerrado formalmente. Memoria de contexto asegurada en tu historial local. Estoy listo para procesar un nuevo ticket, ¿en qué te puedo ayudar?",
+                    'sources': [],
+                    'timestamp': datetime.now().isoformat(),
+                    'usuario': self.usuario,
+                    'rol': self.rol,
+                    'modo': 'SISTEMA_LOCAL'
+                }
+                self.historial_local.append(respuesta_cierre)
+                self._guardar_sesion()
+                return respuesta_cierre
             
             logger.info(f"📨 Procesando mensaje de {self.usuario}: {mensaje[:50]}...")
             
@@ -152,12 +151,10 @@ class ChatProcessor:
             self._guardar_sesion()
             
             logger.info(f"✅ Mensaje procesado exitosamente")
-            
             return respuesta
         
         except Exception as e:
             logger.error(f"❌ Error procesando mensaje: {e}", exc_info=True)
-            
             return {
                 'exitoso': False,
                 'mensaje': mensaje,
@@ -185,7 +182,6 @@ class ChatProcessor:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             
             logger.debug(f"✅ Sesión guardada")
-        
         except Exception as e:
             logger.warning(f"⚠️ No se pudo guardar sesión: {e}")
     
@@ -205,15 +201,7 @@ class ChatProcessor:
             return False
     
     def exportar_historial(self, formato: str = 'json') -> str:
-        """
-        Exportar historial
-        
-        Args:
-            formato: 'json' o 'txt'
-        
-        Returns:
-            Contenido del archivo
-        """
+        """Exportar historial a texto o json"""
         try:
             if formato == 'json':
                 return json.dumps(self.historial_local, ensure_ascii=False, indent=2)
