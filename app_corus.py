@@ -1,690 +1,582 @@
-# =====================================================================
-# CorusIntranetEngine v2.0 - APP PRINCIPAL
-# =====================================================================
-# Fecha: 2026
-# Descripción: Interfaz RAG integrada con autenticación, gestión de sesiones
-#              y memoria de largo plazo basada en disco.
-# =====================================================================
+# app_corus.py - Aplicación Principal Streamlit
+"""
+CorusIntranetEngine v2.0
+Sistema de Intranet con IA para consultas de documentos corporativos
+Arquitectura modular con gestión de sesiones y autenticación
+"""
 
 import streamlit as st
-import time
-import os
-import datetime
-import glob
-import json
 import logging
-import warnings
+import os
+import json
+import csv
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Optional, Dict, Any
+from dotenv import load_dotenv
 
-# Suprimir warnings
-warnings.filterwarnings('ignore')
-
-# ========== IMPORTAR MÓDULO PRINCIPAL ==========
+# Importar módulos de la aplicación
 try:
-    from chat_procesos import CorusIntranetEngine
+    from ia_motor import CorusIntranetEngine
+    from chat_procesos import ChatProcessor
+    from procesar_datos import DataProcessor
 except ImportError as e:
-    st.error(f"❌ Error importando módulo: {e}")
+    st.error(f"❌ Error de importación: {e}")
     st.stop()
 
-# ========== CONFIGURACIÓN DE LOGGING ==========
+# ===== CONFIGURACIÓN GLOBAL =====
+
+# Cargar variables de entorno
+load_dotenv()
+
+# Crear directorios necesarios
+DIRECTORIOS = ["data/pdfs", "data/db", "data/sessions", "logs"]
+for directorio in DIRECTORIOS:
+    Path(directorio).mkdir(parents=True, exist_ok=True)
+
+# Configurar logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('logs/app.log'),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
-# ========== CONSTANTES ==========
-ARCHIVO_ESTADO = "estado_servidor.txt"
-ARCHIVO_LOGS = "registro_conexiones.csv"
-ARCHIVO_MEMORIA_CHATS = "memoria_largo_plazo.json"
-LIMITE_ADVERTENCIA = 300      # 5 minutos
-LIMITE_EXPULSION = 360        # 6 minutos
-INTERVALO_AUTOREFRESH = 30000  # 30 segundos
+# ===== CREDENCIALES (CAMBIAR EN PRODUCCIÓN) =====
+CREDENCIALES = {
+    "Analista": "analista123",
+    "Administrador": "admin123"
+}
 
-# ========== DIRECTORIOS ==========
-DIRS_REQUERIDOS = ["data/pdfs", "data/db", "data/sessions", "logs"]
-for directorio in DIRS_REQUERIDOS:
-    Path(directorio).mkdir(parents=True, exist_ok=True)
-
-# =====================================================================
-# 1. CONFIGURACIÓN DE PÁGINA
-# =====================================================================
-
+# ===== CONFIGURACIÓN STREAMLIT =====
 st.set_page_config(
-    page_title="IA Corus - Procesos",
-    page_icon="🏢",
+    page_title="🤖 Corus Intranet Engine v2.0",
+    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# =====================================================================
-# 2. FUNCIONES AUXILIARES
-# =====================================================================
-
-def verificar_estado_servidor() -> bool:
-    """Verifica si el servidor está activo."""
-    if os.path.exists(ARCHIVO_ESTADO):
-        try:
-            with open(ARCHIVO_ESTADO, "r", encoding="utf-8") as f:
-                estado = f.read().strip()
-                return estado != "OFFLINE"
-        except Exception as e:
-            logger.error(f"Error verificando estado: {e}")
-            return True
-    return True
-
-
-def cargar_memoria_disco(usuario_clave: str) -> List[Dict]:
-    """
-    Carga el historial de chat desde disco para un usuario específico.
+# ===== CSS PERSONALIZADO =====
+st.markdown("""
+<style>
+    * {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
     
-    Args:
-        usuario_clave: Identificador único del usuario (usuario_rol)
+    .main {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #ffffff;
+    }
     
-    Returns:
-        Lista de mensajes del historial o lista vacía si no existe
-    """
-    if not os.path.exists(ARCHIVO_MEMORIA_CHATS):
-        return []
+    .stButton > button {
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        font-weight: bold;
+        transition: all 0.3s;
+    }
     
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    }
+    
+    .login-container {
+        background: rgba(255, 255, 255, 0.95);
+        padding: 40px;
+        border-radius: 15px;
+        backdrop-filter: blur(10px);
+        max-width: 400px;
+        margin: 50px auto;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        color: #333;
+    }
+    
+    .login-container h1, .login-container h3 {
+        color: #667eea;
+        text-align: center;
+    }
+    
+    .stats-box {
+        background: rgba(255, 255, 255, 0.1);
+        padding: 20px;
+        border-radius: 10px;
+        margin: 10px 0;
+        border-left: 4px solid #667eea;
+    }
+    
+    .success-box {
+        background: rgba(76, 175, 80, 0.2);
+        border-left: 4px solid #4CAF50;
+        padding: 15px;
+        border-radius: 5px;
+        margin: 10px 0;
+    }
+    
+    .error-box {
+        background: rgba(244, 67, 54, 0.2);
+        border-left: 4px solid #f44336;
+        padding: 15px;
+        border-radius: 5px;
+        margin: 10px 0;
+    }
+    
+    .message-user {
+        background: rgba(102, 126, 234, 0.3);
+        padding: 12px;
+        border-radius: 8px;
+        margin: 8px 0;
+        text-align: right;
+    }
+    
+    .message-ai {
+        background: rgba(255, 255, 255, 0.1);
+        padding: 12px;
+        border-radius: 8px;
+        margin: 8px 0;
+    }
+    
+    .header-title {
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        color: white;
+        margin-bottom: 20px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ===== GESTIÓN DE SESIÓN =====
+
+def inicializar_sesion():
+    """Inicializar variables de sesión"""
+    if "autenticado" not in st.session_state:
+        st.session_state.autenticado = False
+        st.session_state.usuario = None
+        st.session_state.rol = None
+        st.session_state.chat_processor = None
+        st.session_state.motor_ia = None
+        st.session_state.historial = []
+        st.session_state.ultimo_acceso = None
+        st.session_state.inicio_sesion = None
+
+def verificar_autenticacion() -> bool:
+    """Verificar si el usuario está autenticado"""
+    return st.session_state.autenticado
+
+def registrar_acceso(usuario: str, rol: str, accion: str = "LOGIN"):
+    """Registrar acceso en CSV"""
     try:
-        with open(ARCHIVO_MEMORIA_CHATS, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data.get(usuario_clave, [])
-    except Exception as e:
-        logger.warning(f"Error cargando memoria para {usuario_clave}: {e}")
-        return []
-
-
-def guardar_memoria_disco(usuario_clave: str, historial: List[Dict]) -> None:
-    """
-    Guarda el historial de chat en disco de forma persistente.
-    
-    Args:
-        usuario_clave: Identificador único del usuario (usuario_rol)
-        historial: Lista de mensajes a guardar
-    """
-    try:
-        # Cargar datos existentes
-        data = {}
-        if os.path.exists(ARCHIVO_MEMORIA_CHATS):
-            try:
-                with open(ARCHIVO_MEMORIA_CHATS, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except Exception:
-                data = {}
+        archivo_log = "logs/registro_conexiones.csv"
+        archivo_existe = os.path.exists(archivo_log)
         
-        # Actualizar con nuevo historial
-        data[usuario_clave] = historial
-        
-        # Guardar
-        with open(ARCHIVO_MEMORIA_CHATS, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-        
-        logger.info(f"Memoria guardada para {usuario_clave}")
-    except Exception as e:
-        logger.error(f"Error guardando memoria: {e}")
-
-
-def registrar_acceso(usuario: str, rol: str) -> None:
-    """
-    Registra un acceso en el archivo de logs.
-    
-    Args:
-        usuario: Nombre del usuario
-        rol: Rol del usuario (Analista/Administrador)
-    """
-    try:
-        ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        usuario_limpio = usuario.replace(",", " ").strip()
-        
-        with open(ARCHIVO_LOGS, "a", encoding="utf-8") as f:
-            f.write(f"{ahora},{usuario_limpio},{rol}\n")
-        
-        logger.info(f"Acceso registrado: {usuario_limpio} ({rol})")
+        with open(archivo_log, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            
+            if not archivo_existe:
+                writer.writerow(['Timestamp', 'Usuario', 'Rol', 'Acción', 'IP'])
+            
+            writer.writerow([
+                datetime.now().isoformat(),
+                usuario,
+                rol,
+                accion,
+                'local'  # En producción, obtener IP real
+            ])
     except Exception as e:
         logger.error(f"Error registrando acceso: {e}")
 
+# ===== PANTALLA DE LOGIN =====
 
-def obtener_ultimos_logs(lineas: int = 50) -> List[Dict]:
-    """Obtiene los últimos accesos registrados."""
-    if not os.path.exists(ARCHIVO_LOGS):
-        return []
+def pantalla_login():
+    """Renderizar pantalla de login"""
     
-    try:
-        with open(ARCHIVO_LOGS, "r", encoding="utf-8") as f:
-            todas_lineas = f.readlines()
-        
-        datos = []
-        for linea in reversed(todas_lineas[-lineas:]):
-            partes = linea.strip().split(",")
-            if len(partes) == 3:
-                datos.append({
-                    "Fecha/Hora": partes[0],
-                    "Usuario": partes[1],
-                    "Rol": partes[2]
-                })
-        return datos
-    except Exception as e:
-        logger.error(f"Error leyendo logs: {e}")
-        return []
-
-
-def cambiar_estado_servidor(nuevo_estado: str) -> None:
-    """Cambia el estado del servidor."""
-    try:
-        if nuevo_estado == "OFFLINE":
-            with open(ARCHIVO_ESTADO, "w", encoding="utf-8") as f:
-                f.write("OFFLINE")
-        else:
-            if os.path.exists(ARCHIVO_ESTADO):
-                os.remove(ARCHIVO_ESTADO)
-        logger.info(f"Estado del servidor cambiado a: {nuevo_estado}")
-    except Exception as e:
-        logger.error(f"Error cambiando estado: {e}")
-
-
-def obtener_estructura_pdfs() -> Dict[str, set]:
-    """
-    Obtiene la estructura de carpetas de PDFs disponibles.
-    
-    Returns:
-        Diccionario con estructura de directorios
-    """
-    secciones = {}
-    try:
-        for ruta in glob.glob("**/*.pdf", recursive=True):
-            # Filtrar rutas indeseadas
-            if any(x in ruta for x in ["chroma_db", ".git", "__pycache__", ".venv", "venv"]):
-                continue
-            
-            partes = os.path.normpath(ruta).split(os.sep)
-            if len(partes) >= 2:
-                raiz = partes[0]
-                subcat = partes[-2] if len(partes) > 2 else "General"
-                
-                if raiz not in secciones:
-                    secciones[raiz] = set()
-                secciones[raiz].add(subcat)
-    except Exception as e:
-        logger.warning(f"Error obteniendo estructura de PDFs: {e}")
-    
-    return secciones
-
-
-# =====================================================================
-# 3. INICIALIZACIÓN DE SESIÓN
-# =====================================================================
-
-# Estado de autenticación
-if "autenticado" not in st.session_state:
-    st.session_state.autenticado = False
-
-if "usuario_identidad" not in st.session_state:
-    st.session_state.usuario_identidad = ""
-
-if "rol_usuario" not in st.session_state:
-    st.session_state.rol_usuario = "Analista"
-
-if "es_admin" not in st.session_state:
-    st.session_state.es_admin = False
-
-if "ultimo_acceso" not in st.session_state:
-    st.session_state.ultimo_acceso = time.time()
-
-if "dialogo_abierto" not in st.session_state:
-    st.session_state.dialogo_abierto = False
-
-if "historial_pantalla" not in st.session_state:
-    st.session_state.historial_pantalla = []
-
-if "pensando" not in st.session_state:
-    st.session_state.pensando = False
-
-if "motor_ia" not in st.session_state:
-    st.session_state.motor_ia = None
-
-# =====================================================================
-# 4. DIÁLOGOS DE INTERFAZ
-# =====================================================================
-
-@st.dialog("👁️ Monitor de Accesos Corporativos")
-def mostrar_monitor_conexiones():
-    """Muestra el diálogo del monitor de conexiones."""
-    st.markdown("### Últimos Accesos Registrados")
-    
-    datos = obtener_ultimos_logs(100)
-    if datos:
-        st.dataframe(
-            datos,
-            use_container_width=True,
-            hide_index=True,
-            height=400
-        )
-        st.info(f"📊 Total de accesos registrados: {len(datos)}")
-    else:
-        st.info("⚠️ Aún no hay conexiones registradas.")
-
-
-@st.dialog("⚠️ Alerta de Inactividad")
-def mostrar_ventana_caducidad():
-    """Muestra alerta de sesión por caducar."""
-    st.session_state.dialogo_abierto = True
-    
-    st.warning(
-        "⏰ Tu sesión está a punto de cerrarse por seguridad tras 5 minutos sin actividad.",
-        icon="⏰"
-    )
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ Mantener en línea", use_container_width=True, key="btn_mantener"):
-            st.session_state.ultimo_acceso = time.time()
-            st.session_state.dialogo_abierto = False
-            st.rerun()
+    # Centrar contenido
+    col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        if st.button("🚪 Cerrar Sesión", use_container_width=True, key="btn_cerrar"):
-            st.session_state.autenticado = False
-            st.session_state.es_admin = False
-            st.session_state.dialogo_abierto = False
-            st.rerun()
-
-
-# =====================================================================
-# 5. CARGA DEL MOTOR IA (SINGLETON)
-# =====================================================================
-
-@st.cache_resource(show_spinner=False)
-def cargar_motor_central() -> "CorusIntranetEngine":
-    """
-    Carga el motor IA una única vez (cached).
-    
-    Returns:
-        Instancia del CorusIntranetEngine
-    """
-    try:
-        logger.info("Inicializando CorusIntranetEngine...")
-        motor = CorusIntranetEngine()
-        logger.info("Motor IA cargado exitosamente")
-        return motor
-    except Exception as e:
-        logger.error(f"Error cargando motor IA: {e}")
-        st.error(f"❌ Error al inicializar el sistema: {str(e)}")
-        st.stop()
-
-
-# =====================================================================
-# 6. PANEL DE LOGIN
-# =====================================================================
-
-if not st.session_state.autenticado:
-    # Verificar estado del servidor
-    sitio_activo = verificar_estado_servidor()
-    
-    # Interfaz de login
-    st.title("🏢 Acceso Restringido - CorusIntranetEngine")
-    st.divider()
-    
-    if not sitio_activo:
-        st.error("⚠️ SISTEMA EN MANTENIMIENTO - Por favor, intente más tarde.")
-    
-    # Formulario de login
-    with st.form("formulario_login", border=True):
-        st.markdown("### Autenticación de Usuario")
+        st.markdown("<div class='login-container'>", unsafe_allow_html=True)
         
-        usuario_input = st.text_input(
-            "Nombre y Apellido:",
-            placeholder="Ej. Juan Pérez",
-            help="Ingresa tu nombre completo"
-        )
-        
-        pwd = st.text_input(
-            "Contraseña:",
-            type="password",
-            help="Contraseña de acceso corporativo"
-        )
-        
-        btn_ingresar = st.form_submit_button(
-            "🔐 Iniciar Sesión",
-            use_container_width=True,
-            type="primary"
-        )
-        
-        if btn_ingresar:
-            if not usuario_input.strip() or not pwd:
-                st.warning("⚠️ Por favor, completa todos los campos.")
-            
-            elif not sitio_activo:
-                st.error("❌ Sistema en mantenimiento.")
-            
-            # Verificar credenciales
-            elif pwd == "FarmeoAura*26*****":
-                nombre_formateado = usuario_input.strip().replace(" ", "_")
-                registrar_acceso(usuario_input.strip(), "Analista")
-                
-                st.session_state.update(
-                    autenticado=True,
-                    usuario_identidad=nombre_formateado,
-                    rol_usuario="Analista",
-                    es_admin=False,
-                    ultimo_acceso=time.time()
-                )
-                
-                # Cargar memoria desde disco
-                clave = f"{nombre_formateado}_Analista"
-                st.session_state.historial_pantalla = cargar_memoria_disco(clave)
-                
-                st.success("✅ Autenticación exitosa. Redirigiendo...")
-                time.sleep(1)
-                st.rerun()
-            
-            elif pwd == "Pipeline**2038******":
-                nombre_formateado = usuario_input.strip().replace(" ", "_")
-                registrar_acceso(usuario_input.strip(), "Administrador")
-                
-                st.session_state.update(
-                    autenticado=True,
-                    usuario_identidad=nombre_formateado,
-                    rol_usuario="Administrador",
-                    es_admin=True,
-                    ultimo_acceso=time.time()
-                )
-                
-                # Cargar memoria desde disco
-                clave = f"{nombre_formateado}_Administrador"
-                st.session_state.historial_pantalla = cargar_memoria_disco(clave)
-                
-                st.success("✅ Autenticación exitosa. Redirigiendo...")
-                time.sleep(1)
-                st.rerun()
-            
-            else:
-                st.error("❌ Contraseña incorrecta.")
-    
-    st.divider()
-    st.caption("🔒 Acceso restringido a personal autorizado de Corus | v2.0")
-    st.stop()
-
-# =====================================================================
-# 7. INTERFAZ PRINCIPAL (POST-LOGIN)
-# =====================================================================
-
-# Verificar estado del servidor
-sitio_activo = verificar_estado_servidor()
-
-# Expulsar usuarios si servidor está offline (excepto admins)
-if not sitio_activo and not st.session_state.es_admin:
-    st.session_state.autenticado = False
-    st.rerun()
-
-# Cargar motor IA
-motor_ia = cargar_motor_central()
-clave_memoria_actual = f"{st.session_state.usuario_identidad}_{st.session_state.rol_usuario}"
-
-# ========== ESTILOS CSS ==========
-st.markdown("""
-    <style>
-    /* Ocultar elementos por defecto */
-    #MainMenu, footer, .stAppDeployButton {
-        visibility: hidden;
-        display: none !important;
-    }
-    
-    header {
-        background: transparent !important;
-    }
-    
-    /* Sidebar */
-    [data-testid="stSidebar"] {
-        background-color: rgba(255, 255, 255, 0.02) !important;
-        backdrop-filter: blur(20px) !important;
-    }
-    
-    /* Cards */
-    .folder-card {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 10px 15px;
-        border-radius: 10px;
-        margin-bottom: 8px;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        transition: all 0.3s ease;
-    }
-    
-    .folder-card:hover {
-        background: rgba(255, 255, 255, 0.05);
-        border-color: rgba(255, 255, 255, 0.2);
-    }
-    
-    .folder-icon {
-        color: #60a5fa;
-        font-size: 18px;
-    }
-    
-    .folder-text {
-        color: #e2e8f0;
-        font-size: 14px;
-        font-weight: 500;
-    }
-    
-    /* Tips */
-    .tip-container {
-        background: rgba(59, 130, 246, 0.05);
-        border-left: 3px solid #3b82f6;
-        padding: 15px;
-        border-radius: 5px;
-        margin-top: 20px;
-    }
-    
-    .tip-text {
-        font-size: 13px;
-        color: #94a3b8;
-    }
-    
-    /* Botones */
-    div.stButton > button {
-        background: rgba(128, 128, 128, 0.1) !important;
-        color: #f8fafc !important;
-        border-radius: 10px !important;
-        text-transform: uppercase;
-        font-size: 12px;
-        transition: all 0.3s ease;
-    }
-    
-    div.stButton > button:hover {
-        background: rgba(128, 128, 128, 0.2) !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# ========== HEADER ==========
-col1, col2 = st.columns([1, 4])
-
-with col1:
-    if os.path.exists("logo_corus.png"):
-        st.image("logo_corus.png", width=100)
-    else:
-        st.markdown("<h1>🏢</h1>", unsafe_allow_html=True)
-
-with col2:
-    st.title("Asistente Virtual Corus")
-    st.caption(
-        f"🔐 **{st.session_state.rol_usuario}** | "
-        f"👤 **{st.session_state.usuario_identidad.replace('_', ' ')}**"
-    )
-
-st.divider()
-
-# ========== SIDEBAR ==========
-with st.sidebar:
-    # Panel Admin
-    if st.session_state.es_admin:
-        st.markdown("### 🚨 PANEL MAESTRO")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("👁️ CONEXIONES", use_container_width=True):
-                mostrar_monitor_conexiones()
-        
-        with col2:
-            if sitio_activo:
-                if st.button("🔴 APAGAR", use_container_width=True):
-                    cambiar_estado_servidor("OFFLINE")
-                    st.rerun()
-            else:
-                if st.button("🟢 ACTIVAR", use_container_width=True):
-                    cambiar_estado_servidor("ONLINE")
-                    st.rerun()
+        st.markdown("# 🤖 Corus Intranet Engine")
+        st.markdown("## v2.0")
+        st.markdown("### Sistema de IA Corporativo")
         
         st.markdown("---")
-    
-    # Sección de configuración
-    st.markdown("### 🛠️ Configuración")
-    
-    # Estructura de PDFs
-    secciones = obtener_estructura_pdfs()
-    if secciones:
-        st.markdown("#### 📁 Documentación Disponible")
-        for raiz in sorted(secciones.keys()):
-            with st.expander(f"📂 {raiz}", expanded=False):
-                for subcat in sorted(secciones[raiz]):
-                    st.markdown(
-                        f'<div class="folder-card">'
-                        f'<span class="folder-icon">📄</span>'
-                        f'<span class="folder-text">{subcat}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True
-                    )
-    
-    st.markdown("---")
-    
-    # Botones de control
-    st.markdown("#### 🎛️ Control de Sesión")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🗑️ Limpiar Chat", use_container_width=True):
-            st.session_state.historial_pantalla = []
-            guardar_memoria_disco(clave_memoria_actual, [])
-            st.success("✅ Chat limpiado")
-            st.rerun()
-    
-    with col2:
-        if st.button("🚪 Salir", use_container_width=True):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-    
-    st.markdown("---")
-    st.caption("🔒 CorusIntranetEngine v2.0")
-
-# ========== ÁREA DE CHAT ==========
-st.markdown("### 💬 Consultorio Virtual")
-
-# Inicializar historial si está vacío
-if not st.session_state.historial_pantalla:
-    st.session_state.historial_pantalla = [{
-        "rol": "assistant",
-        "contenido": (
-            f"¡Hola **{st.session_state.usuario_identidad.replace('_', ' ')}**! 👋\n\n"
-            f"Bienvenido de vuelta. Tu historial ha sido restaurado exitosamente en tu rol de "
-            f"**{st.session_state.rol_usuario}**.\n\n"
-            f"¿En qué caso vamos a trabajar hoy?"
-        )
-    }]
-
-# Mostrar historial
-for msg in st.session_state.historial_pantalla:
-    with st.chat_message(msg["rol"]):
-        st.markdown(msg["contenido"])
-
-# ========== INPUT DE USUARIO ==========
-if consulta := st.chat_input("Escribe tu consulta...", key="input_chat"):
-    st.session_state.ultimo_acceso = time.time()
-    st.session_state.pensando = True
-    
-    # Mostrar mensaje del usuario
-    with st.chat_message("user"):
-        st.markdown(consulta)
-    
-    # Agregar al historial
-    st.session_state.historial_pantalla.append({
-        "rol": "user",
-        "contenido": consulta
-    })
-    
-    # Guardar inmediatamente
-    guardar_memoria_disco(clave_memoria_actual, st.session_state.historial_pantalla)
-    
-    # Procesar con IA
-    with st.chat_message("assistant"):
-        with st.spinner("🔍 Consultando documentación..."):
-            try:
-                # Construir contexto
-                contexto_usuario_actual = "\n".join([
-                    f"{m['rol'].upper()}: {m['contenido']}"
-                    for m in st.session_state.historial_pantalla[-5:-1]
-                ])
-                
-                # Procesar consulta
-                respuesta = motor_ia.procesar_consulta(
-                    consulta,
-                    contexto_usuario_actual,
-                    st.session_state.rol_usuario
+        
+        with st.form("login_form", clear_on_submit=True):
+            usuario = st.text_input(
+                "👤 Usuario",
+                placeholder="Ingresa tu usuario"
+            )
+            
+            rol = st.selectbox(
+                "🔐 Rol",
+                ["Analista", "Administrador"],
+                help="Selecciona tu rol en la organización"
+            )
+            
+            contraseña = st.text_input(
+                "🔑 Contraseña",
+                type="password",
+                placeholder="Ingresa tu contraseña"
+            )
+            
+            col1_btn, col2_btn = st.columns(2)
+            with col1_btn:
+                submit = st.form_submit_button(
+                    "🔓 Iniciar Sesión",
+                    use_container_width=True
                 )
+            with col2_btn:
+                st.form_submit_button(
+                    "ℹ️ Ayuda",
+                    use_container_width=True,
+                    disabled=True
+                )
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        # Procesar login
+        if submit:
+            if not usuario or not contraseña:
+                st.error("❌ Por favor completa todos los campos")
+                return
+            
+            # Validar credenciales
+            if contraseña == CREDENCIALES.get(rol):
+                # Login exitoso
+                st.session_state.autenticado = True
+                st.session_state.usuario = usuario
+                st.session_state.rol = rol
+                st.session_state.inicio_sesion = datetime.now()
+                st.session_state.ultimo_acceso = datetime.now()
                 
-                # Mostrar respuesta
-                st.markdown(respuesta)
+                # Registrar acceso
+                registrar_acceso(usuario, rol, "LOGIN")
                 
-                # Guardar respuesta
-                st.session_state.historial_pantalla.append({
-                    "rol": "assistant",
-                    "contenido": respuesta
-                })
+                # Inicializar módulos
+                try:
+                    with st.spinner("⏳ Inicializando sistema..."):
+                        st.session_state.motor_ia = CorusIntranetEngine()
+                        st.session_state.motor_ia.load_vectorstore()
+                        st.session_state.motor_ia.setup_chain()
+                        
+                        st.session_state.chat_processor = ChatProcessor(usuario, rol)
+                        st.session_state.chat_processor._cargar_memoria_usuario()
+                        st.session_state.historial = st.session_state.chat_processor.historial_local
+                        
+                        logger.info(f"✅ {usuario} ({rol}) autenticado exitosamente")
+                    
+                    st.success(f"✅ ¡Bienvenido {usuario}!")
+                    st.rerun()
                 
-                # Persistir en disco
-                guardar_memoria_disco(clave_memoria_actual, st.session_state.historial_pantalla)
+                except Exception as e:
+                    logger.error(f"Error inicializando: {e}")
+                    st.error(f"❌ Error inicializando sistema: {e}")
+            else:
+                st.error("❌ Credenciales inválidas")
+                logger.warning(f"Intento de login fallido para usuario: {usuario}")
+
+# ===== PANTALLA PRINCIPAL (POST-LOGIN) =====
+
+def pantalla_principal():
+    """Renderizar pantalla principal después de login"""
+    
+    # ===== SIDEBAR =====
+    with st.sidebar:
+        st.markdown(f"### 👤 {st.session_state.usuario}")
+        st.markdown(f"**Rol:** `{st.session_state.rol}`")
+        
+        if st.session_state.inicio_sesion:
+            tiempo_sesion = datetime.now() - st.session_state.inicio_sesion
+            st.markdown(f"⏱️ Sesión: {tiempo_sesion.seconds // 60}m")
+        
+        st.markdown("---")
+        
+        # Opciones generales
+        st.markdown("### 📋 Opciones")
+        
+        if st.button("🧹 Limpiar Historial", use_container_width=True):
+            if st.session_state.chat_processor:
+                st.session_state.chat_processor.limpiar_historial()
+                st.session_state.historial = []
+                st.success("✅ Historial limpiado")
+                st.rerun()
+        
+        if st.button("📊 Ver Estadísticas", use_container_width=True):
+            st.session_state.mostrar_stats = not st.session_state.get('mostrar_stats', False)
+            st.rerun()
+        
+        st.markdown("---")
+        
+        # Panel Administrativo (solo administradores)
+        if st.session_state.rol == "Administrador":
+            st.markdown("### ⚙️ Panel Administrativo")
+            
+            if st.button("📥 Procesar PDFs", use_container_width=True, key="procesar_pdfs"):
+                st.session_state.procesar_pdfs_modal = True
+            
+            if st.button("📊 Ver BD Documentos", use_container_width=True):
+                st.session_state.mostrar_bd_modal = True
+            
+            st.markdown("---")
+        
+        # Cerrar sesión
+        if st.button("🚪 Cerrar Sesión", use_container_width=True, type="secondary"):
+            registrar_acceso(st.session_state.usuario, st.session_state.rol, "LOGOUT")
+            
+            st.session_state.autenticado = False
+            st.session_state.usuario = None
+            st.session_state.rol = None
+            st.session_state.motor_ia = None
+            st.session_state.chat_processor = None
+            st.session_state.historial = []
+            
+            logger.info(f"✅ Sesión cerrada para {st.session_state.usuario}")
+            st.rerun()
+    
+    # ===== CONTENIDO PRINCIPAL =====
+    
+    st.markdown("""
+    <div class='header-title'>
+        <h1>💬 Chat IA Corus</h1>
+        <p>Consulta documentos corporativos con inteligencia artificial</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Mostrar estadísticas si se solicita
+    if st.session_state.get('mostrar_stats', False):
+        with st.expander("📊 Estadísticas de Uso", expanded=True):
+            if st.session_state.chat_processor:
+                stats = st.session_state.chat_processor.obtener_estadisticas()
                 
-                logger.info(f"Consulta procesada para {st.session_state.usuario_identidad}")
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("📨 Mensajes", stats['total_mensajes'])
+                with col2:
+                    st.metric("✅ Exitosos", stats['exitosos'])
+                with col3:
+                    st.metric("❌ Fallidos", stats['fallidos'])
+                with col4:
+                    st.metric("📊 Tasa Éxito", stats['tasa_exito'])
+                
+                st.markdown(f"**Promedio de respuesta:** {stats['promedio_respuesta_caracteres']} caracteres")
+    
+    # Modal procesamiento de PDFs (Admin)
+    if st.session_state.get('procesar_pdfs_modal', False):
+        with st.container():
+            st.markdown("### 📥 Procesar Documentos PDF")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 📂 PDFs Disponibles")
+                try:
+                    processor = DataProcessor()
+                    pdfs = processor.listar_pdfs()
+                    
+                    if pdfs:
+                        for nombre, tamaño in pdfs:
+                            st.markdown(f"📄 **{nombre}** ({tamaño:.1f} KB)")
+                    else:
+                        st.info("No hay PDFs en data/pdfs/")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+            
+            with col2:
+                st.markdown("#### 🔧 Opciones de Procesamiento")
+                
+                modo = st.radio("Modo:", ["Crear nuevo", "Agregar a existente"])
+                
+                if st.button("▶️ Iniciar Procesamiento", use_container_width=True):
+                    with st.spinner("⏳ Procesando documentos..."):
+                        try:
+                            processor = DataProcessor()
+                            resultado = processor.procesar_todos(
+                                modo="create" if modo == "Crear nuevo" else "add"
+                            )
+                            
+                            if resultado['exitoso']:
+                                st.markdown('<div class="success-box">', unsafe_allow_html=True)
+                                st.markdown(f"### {resultado['mensaje']}")
+                                
+                                detalles = resultado['detalles']
+                                col1_d, col2_d, col3_d = st.columns(3)
+                                
+                                with col1_d:
+                                    st.metric("📄 PDFs", detalles.get('pdfs_procesados', 0))
+                                with col2_d:
+                                    st.metric("📄 Documentos", detalles.get('documentos_cargados', 0))
+                                with col3_d:
+                                    st.metric("⏱️ Tiempo (s)", detalles.get('tiempo_segundos', 0))
+                                
+                                st.markdown('</div>', unsafe_allow_html=True)
+                                
+                                logger.info(f"Procesamiento exitoso por {st.session_state.usuario}")
+                            else:
+                                st.markdown('<div class="error-box">', unsafe_allow_html=True)
+                                st.markdown(f"### {resultado['mensaje']}")
+                                st.markdown('</div>', unsafe_allow_html=True)
+                        
+                        except Exception as e:
+                            st.error(f"❌ Error: {e}")
+                            logger.error(f"Error procesando: {e}")
+            
+            st.markdown("---")
+            if st.button("Cerrar", use_container_width=True):
+                st.session_state.procesar_pdfs_modal = False
+                st.rerun()
+    
+    # Modal BD Documentos (Admin)
+    if st.session_state.get('mostrar_bd_modal', False):
+        with st.container():
+            st.markdown("### 📊 Base de Datos de Documentos")
+            
+            try:
+                processor = DataProcessor()
+                stats_bd = processor.obtener_estadisticas()
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("📄 PDFs Disponibles", stats_bd['pdfs_disponibles'])
+                with col2:
+                    st.metric("📚 Documentos", stats_bd['total_documentos'])
+                with col3:
+                    st.metric("💾 Tamaño BD", f"{stats_bd['tamaño_db_mb']} MB")
+                with col4:
+                    st.metric("⏱️ Último Update", 
+                             stats_bd['ultima_actualizacion'][:10] 
+                             if stats_bd['ultima_actualizacion'] != 'Nunca' 
+                             else 'Nunca')
+                
+                if st.button("🗑️ Limpiar BD (PELIGROSO)", use_container_width=True):
+                    if st.checkbox("✓ Confirmar limpieza"):
+                        with st.spinner("Limpiando..."):
+                            processor.limpiar_vectorstore()
+                            st.success("✅ BD limpiada")
+                            st.rerun()
             
             except Exception as e:
-                error_msg = f"❌ Error al procesar consulta: {str(e)}"
-                st.error(error_msg)
-                logger.error(f"Error procesando consulta: {e}", exc_info=True)
+                st.error(f"Error: {e}")
+            
+            st.markdown("---")
+            if st.button("Cerrar", use_container_width=True, key="cerrar_bd"):
+                st.session_state.mostrar_bd_modal = False
+                st.rerun()
     
-    st.session_state.pensando = False
-    st.rerun()
-
-# ========== AUTOREFRESH SILENCIOSO ==========
-if not st.session_state.pensando:
-    try:
-        from streamlit_autorefresh import st_autorefresh
-        st_autorefresh(
-            interval=INTERVALO_AUTOREFRESH,
-            limit=None,
-            key="reloj_sesion"
+    # ===== ÁREA DE CHAT =====
+    st.markdown("### 💬 Conversación")
+    
+    # Input del usuario
+    col_input, col_button = st.columns([0.85, 0.15])
+    
+    with col_input:
+        user_input = st.text_input(
+            "Escribe tu pregunta:",
+            placeholder="Ejemplo: ¿Cuáles son las políticas de seguridad?",
+            label_visibility="collapsed"
         )
-    except ImportError:
-        pass  # Si no está instalado streamlit_autorefresh, continuar sin él
+    
+    with col_button:
+        enviar = st.button("📤", help="Enviar mensaje", use_container_width=True)
+    
+    # Procesar mensaje
+    if enviar and user_input:
+        with st.spinner("⏳ Procesando tu pregunta..."):
+            try:
+                respuesta = st.session_state.chat_processor.procesar_mensaje(
+                    mensaje=user_input,
+                    contexto={
+                        'rol': st.session_state.rol
+                    }
+                )
+                
+                st.session_state.historial.append(respuesta)
+                
+                if respuesta['exitoso']:
+                    st.success("✅ Respuesta generada")
+                else:
+                    st.warning(f"⚠️ Error: {respuesta.get('error', {}).get('mensaje', 'Desconocido')}")
+                
+                st.rerun()
+            
+            except Exception as e:
+                st.error(f"❌ Error procesando mensaje: {e}")
+                logger.error(f"Error: {e}")
+    
+    # Mostrar historial de conversación
+    st.markdown("### 📜 Historial")
+    
+    if st.session_state.historial:
+        # Botón para limpiar
+        col_hist_1, col_hist_2 = st.columns([0.8, 0.2])
+        with col_hist_2:
+            if st.button("🗑️", help="Limpiar historial"):
+                st.session_state.chat_processor.limpiar_historial()
+                st.session_state.historial = []
+                st.rerun()
+        
+        # Mostrar mensajes en orden inverso (más recientes primero)
+        for msg in reversed(st.session_state.historial):
+            with st.container():
+                # Mensaje del usuario
+                st.markdown(f"""
+                <div class='message-user'>
+                    <strong>👤 Tú:</strong> {msg['mensaje_original']}
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Respuesta de IA
+                if msg['exitoso']:
+                    st.markdown(f"""
+                    <div class='message-ai'>
+                        <strong>🤖 IA:</strong> {msg['respuesta']}
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Mostrar fuentes si existen
+                    if msg['sources']:
+                        with st.expander("📚 Fuentes"):
+                            for source in msg['sources']:
+                                st.markdown(f"""
+                                - **Archivo:** {source.get('source', 'N/A')}
+                                - **Página:** {source.get('página', 'N/A')}
+                                - **Vista previa:** {source.get('contenido_preview', 'N/A')[:100]}...
+                                """)
+                else:
+                    st.markdown(f"""
+                    <div class='error-box'>
+                        <strong>❌ Error:</strong> {msg['respuesta']}
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Timestamp
+                st.caption(f"⏱️ {msg['timestamp'][:16]}")
+                st.divider()
+    else:
+        st.info("💭 No hay mensajes aún. ¡Haz una pregunta para empezar!")
 
-# ========== CONTROL DE TIMEOUT ==========
-tiempo_inactivo = time.time() - st.session_state.ultimo_acceso
+# ===== FUNCIÓN MAIN =====
 
-if tiempo_inactivo >= LIMITE_EXPULSION:
-    # Tiempo de sesión expirado
-    st.session_state.autenticado = False
-    st.rerun()
+def main():
+    """Función principal de la aplicación"""
+    
+    # Inicializar sesión
+    inicializar_sesion()
+    
+    # Renderizar pantalla correspondiente
+    if verificar_autenticacion():
+        pantalla_principal()
+    else:
+        pantalla_login()
 
-elif tiempo_inactivo >= LIMITE_ADVERTENCIA:
-    # Mostrar advertencia
-    if not st.session_state.dialogo_abierto:
-        mostrar_ventana_caducidad()
-
-# =====================================================================
-# FIN DEL SCRIPT
-# =====================================================================
+if __name__ == "__main__":
+    main()
