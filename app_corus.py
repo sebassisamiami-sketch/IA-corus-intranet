@@ -1,7 +1,7 @@
-# app_corus.py - CorusIntranetEngine v2.0 COMPLETA
+# app_corus.py - CorusIntranetEngine v2.0 OPTIMIZADO
 """
 CorusIntranetEngine v2.0 - Sistema IA Corporativo
-Con Panel Admin completo, gestión de usuarios y roles
+Optimizado para Streamlit Cloud
 """
 
 import streamlit as st
@@ -12,47 +12,91 @@ import csv
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
-from dotenv import load_dotenv
 
-# ===== CARGAR ENV =====
-load_dotenv()
-
-# ===== CREAR DIRECTORIOS =====
-for directorio in ["data/pdfs", "data/db", "data/sessions", "logs", "parafiscales", "pensiones"]:
-    Path(directorio).mkdir(parents=True, exist_ok=True)
-
-# ===== CONFIGURAR LOGGING =====
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/app.log'),
-        logging.StreamHandler()
-    ]
+# ===== CONFIGURACIÓN INICIAL =====
+st.set_page_config(
+    page_title="🤖 Corus Intranet Engine v2.0",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
-logger = logging.getLogger(__name__)
 
-# ===== IMPORTS SEGUROS =====
-try:
-    from ia_motor import obtener_motor
-    logger.info("✅ ia_motor OK")
-except Exception as e:
-    logger.error(f"❌ Error: {e}")
-    exit(1)
+# ===== FUNCIONES DE INICIALIZACIÓN =====
+@st.cache_resource
+def inicializar_sistema():
+    """Inicializar sistema una sola vez"""
+    from dotenv import load_dotenv
+    
+    # Cargar variables de entorno
+    load_dotenv()
+    
+    # Verificar API Key
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        st.error("❌ OPENAI_API_KEY no configurada")
+        st.info("Por favor, configura tu API key en Streamlit Cloud → Settings → Secrets")
+        st.stop()
+    
+    # Crear directorios necesarios
+    directorios = [
+        "data/pdfs", "data/db", "data/sessions", 
+        "logs", "Manual Paraficales", "Manual Pensiones"
+    ]
+    
+    for directorio in directorios:
+        Path(directorio).mkdir(parents=True, exist_ok=True)
+    
+    # Configurar logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('logs/app.log'),
+            logging.StreamHandler()
+        ]
+    )
+    
+    logger = logging.getLogger(__name__)
+    logger.info("✅ Sistema inicializado")
+    
+    return logger
 
-try:
-    from chat_procesos import ChatProcessor
-    logger.info("✅ chat_procesos OK")
-except Exception as e:
-    logger.error(f"❌ Error: {e}")
-    exit(1)
+# Inicializar sistema
+logger = inicializar_sistema()
 
-try:
-    from procesar_datos import DataProcessor
-    logger.info("✅ procesar_datos OK")
-except Exception as e:
-    logger.error(f"❌ Error: {e}")
-    exit(1)
+# ===== IMPORTS LAZY (solo cuando sea necesario) =====
+@st.cache_resource
+def cargar_motor_ia():
+    """Cargar motor IA una sola vez"""
+    try:
+        from ia_motor import obtener_motor
+        logger.info("✅ Cargando motor IA...")
+        motor = obtener_motor()
+        logger.info("✅ Motor IA listo")
+        return motor
+    except Exception as e:
+        logger.error(f"❌ Error cargando motor: {e}")
+        return None
+
+def cargar_chat_processor(usuario, rol):
+    """Cargar chat processor"""
+    try:
+        from chat_procesos import ChatProcessor
+        logger.info(f"✅ Chat processor para {usuario}")
+        return ChatProcessor(usuario, rol)
+    except Exception as e:
+        logger.error(f"❌ Error: {e}")
+        return None
+
+def cargar_data_processor():
+    """Cargar data processor"""
+    try:
+        from procesar_datos import DataProcessor
+        return DataProcessor()
+    except Exception as e:
+        logger.error(f"❌ Error: {e}")
+        return None
+
 
 # ===== USUARIOS Y ROLES ADMINISTRABLES =====
 ARCHIVO_USUARIOS = "data/usuarios.json"
@@ -281,22 +325,31 @@ def pantalla_login():
                     try:
                         logger.info(f"Iniciando sesión para {usuario_seleccionado}")
                         
-                        # Obtener motor IA
-                        motor_ia = obtener_motor()
-                        estado_motor = motor_ia.obtener_estado()
+                        # Obtener motor IA (cached)
+                        motor_ia = cargar_motor_ia()
                         
+                        if not motor_ia:
+                            st.error("❌ Motor IA no disponible")
+                            st.info("Verifica que OPENAI_API_KEY esté configurada")
+                            return
+                        
+                        estado_motor = motor_ia.obtener_estado()
                         logger.info(f"Estado motor: {estado_motor['estado']}")
                         
                         if estado_motor['estado'] != 'listo':
                             st.error(f"❌ Motor IA no disponible: {estado_motor['estado']}")
-                            st.info("Contacta al administrador")
                             return
                         
                         # Inicializar chat processor
-                        chat_processor = ChatProcessor(
+                        chat_processor = cargar_chat_processor(
                             usuario_seleccionado,
                             usuario_data['rol']
                         )
+                        
+                        if not chat_processor:
+                            st.error("❌ Error inicializando chat")
+                            return
+                        
                         chat_processor._cargar_memoria_usuario()
                         
                         # Actualizar sesión
@@ -652,9 +705,13 @@ def mostrar_admin_pdfs():
         if st.button("🔄 Procesar carpeta parafiscales", key="btn_parafiscales"):
             with st.spinner("⏳ Procesando parafiscales..."):
                 try:
-                    processor = DataProcessor()
+                    processor = cargar_data_processor()
+                    if not processor:
+                        st.error("❌ Error cargando procesador")
+                        return
+                    
                     resultado = processor.procesar_carpeta(
-                        "parafiscales",
+                        "Manual Paraficales",
                         "parafiscales"
                     )
                     
@@ -672,9 +729,13 @@ def mostrar_admin_pdfs():
         if st.button("🔄 Procesar carpeta pensiones", key="btn_pensiones"):
             with st.spinner("⏳ Procesando pensiones..."):
                 try:
-                    processor = DataProcessor()
+                    processor = cargar_data_processor()
+                    if not processor:
+                        st.error("❌ Error cargando procesador")
+                        return
+                    
                     resultado = processor.procesar_carpeta(
-                        "pensiones",
+                        "Manual Pensiones",
                         "pensiones"
                     )
                     
@@ -693,7 +754,11 @@ def mostrar_admin_bd():
     st.markdown("## 💾 Estado de Base de Datos")
     
     try:
-        processor = DataProcessor()
+        processor = cargar_data_processor()
+        if not processor:
+            st.error("❌ Error cargando procesador")
+            return
+        
         estado = processor.obtener_estado_bd()
         
         col1, col2, col3 = st.columns(3)
