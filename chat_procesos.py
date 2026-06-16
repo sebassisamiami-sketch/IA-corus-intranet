@@ -13,6 +13,9 @@ from langchain_openai import ChatOpenAI
 
 # --- PARCHES DE INFRAESTRUCTURA ---
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
+# Permiso explícito para poder resetear ChromaDB sin que marque error
+os.environ["CHROMA_CORE_ALLOW_RESET"] = "TRUE"
+
 if "HOME" not in os.environ:
     os.environ["HOME"] = "/tmp"
 
@@ -26,7 +29,7 @@ warnings.filterwarnings("ignore")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 class SistemaConfig:
-    # 🚨 Usamos la carpeta temporal para que todos los usuarios compartan la misma base de datos.
+    # 🚨 Base de datos en memoria compartida de Linux
     CARPETA_DB: str = "/tmp/corus_chroma_db"
     MODELO_EMBEDDINGS: str = "sentence-transformers/all-MiniLM-L6-v2"
     MODELO_LLM: str = "gpt-4o-mini"
@@ -128,6 +131,7 @@ class CorusIntranetEngine:
             except Exception:
                 pass
         
+        # Crear la carpeta temporal si no existe de forma segura
         if not os.path.exists(self.config.CARPETA_DB):
             os.makedirs(self.config.CARPETA_DB, exist_ok=True)
 
@@ -170,20 +174,21 @@ class CorusIntranetEngine:
 
             if clean == "formatear sistema":
                 try:
+                    # 🚨 BORRADO LÓGICO SEGURO (Evita el bloqueo de Streamlit Cloud)
                     try:
                         self.vector_db.delete_collection()
-                    except: pass
-                    if os.path.exists(self.config.CARPETA_DB):
-                        shutil.rmtree(self.config.CARPETA_DB)
-                    os.makedirs(self.config.CARPETA_DB, exist_ok=True)
+                    except:
+                        pass
                     
+                    # Se re-instancia la base de datos limpia
                     self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
                     self.archivos_procesados = set()
                     self.arbol_conocimiento = {}
                     self.router.categorias = set()
-                    return "⚠️ **SISTEMA:** Base de datos compartida purgada. Escribe 'actualizar base' para volver a cargar."
+                    
+                    return "⚠️ **SISTEMA:** Base de datos compartida purgada con éxito de forma segura. Escribe 'actualizar base' para volver a cargar."
                 except Exception as e:
-                    return f"❌ Error al limpiar: {e}"
+                    return f"❌ Error crítico al limpiar la base de datos: {e}"
 
             comandos_actualizar = ["actualizar base", "cargar manuales", "actualizar manuales"]
             if any(c in clean for c in comandos_actualizar):
@@ -215,7 +220,7 @@ class CorusIntranetEngine:
                 filtros["categoria"] = cat_detectada
                 etiqueta_contexto = f"la subcarpeta: {cat_detectada}"
 
-        # --- FASE 2: BÚSQUEDA RAG (MÁS FLEXIBLE) ---
+        # --- FASE 2: BÚSQUEDA RAG (MÁS FLEXIBLE / FALLBACK) ---
         docs = []
         if filtros:
             # Intento 1: Buscar estrictamente en la carpeta que mencionó el usuario
@@ -225,7 +230,7 @@ class CorusIntranetEngine:
 
         # 🚨 LÓGICA DE RESPALDO (FALLBACK STRATEGY)
         if not docs_validos:
-            # Intento 2: Si la búsqueda estricta falla, quitamos el filtro y buscamos en TODOS los documentos
+            # Intento 2: Si la búsqueda estricta falla (o no hubo filtros), buscamos en TODOS los documentos
             docs = self.vector_db.similarity_search(consulta, k=20)
             docs_validos = [d.page_content for d in docs if d and d.page_content]
             if docs_validos:
