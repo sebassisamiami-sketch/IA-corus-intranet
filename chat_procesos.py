@@ -13,7 +13,6 @@ from langchain_openai import ChatOpenAI
 
 # --- PARCHES DE INFRAESTRUCTURA ---
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
-# Permiso explícito para poder resetear ChromaDB sin que marque error
 os.environ["CHROMA_CORE_ALLOW_RESET"] = "TRUE"
 
 if "HOME" not in os.environ:
@@ -29,7 +28,6 @@ warnings.filterwarnings("ignore")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 class SistemaConfig:
-    # 🚨 Base de datos en memoria compartida de Linux
     CARPETA_DB: str = "/tmp/corus_chroma_db"
     MODELO_EMBEDDINGS: str = "sentence-transformers/all-MiniLM-L6-v2"
     MODELO_LLM: str = "gpt-4o-mini"
@@ -98,27 +96,10 @@ class PipelineETL:
                             self.vector_db.add_texts(enriquecidos, meta)
                             
                 self.archivos_procesados.add(archivo)
-                print(f"✅ Ingestado: {archivo} ({texto_total_archivo} fragmentos)")
-            except Exception as e: 
-                print(f"❌ Error leyendo {archivo}: {e}")
+            except Exception: 
+                pass
                 
         return arbol_conocimiento
-
-class SupervisorEnrutamiento:
-    def __init__(self, llm: ChatOpenAI, categorias: Set[str]):
-        self.llm = llm
-        self.categorias = categorias
-
-    def determinar_dominio(self, pregunta: str) -> Optional[str]:
-        if not self.categorias: 
-            return None
-        prompt = f"Determina la subcarpeta física más probable para la consulta: '{pregunta}'. Opciones: {', '.join(self.categorias)}. Responde EXCLUSIVAMENTE con el nombre de la carpeta. Si no hay relación obvia, responde: DESCONOCIDO."
-        
-        resp = self.llm.invoke(prompt).content.strip()
-        for cat in self.categorias:
-            if cat.lower() in resp.lower(): 
-                return cat
-        return None
 
 class CorusIntranetEngine:
     def __init__(self):
@@ -131,7 +112,6 @@ class CorusIntranetEngine:
             except Exception:
                 pass
         
-        # Crear la carpeta temporal si no existe de forma segura
         if not os.path.exists(self.config.CARPETA_DB):
             os.makedirs(self.config.CARPETA_DB, exist_ok=True)
 
@@ -144,8 +124,20 @@ class CorusIntranetEngine:
             sys.exit(1)
             
         self.archivos_procesados = set()
-        self.arbol_conocimiento = PipelineETL(self.vector_db, self.archivos_procesados).ejecutar_sincronizacion()
+        
+        # 🚨 SOLUCIÓN RAÍZ 1: Auto-Sincronización Inicial al encender el Servidor
+        etl = PipelineETL(self.vector_db, self.archivos_procesados)
+        self.arbol_conocimiento = etl.ejecutar_sincronizacion()
+        
+        try:
+            datos_existentes = self.vector_db.get()
+            if not datos_existentes or 'ids' not in datos_existentes or len(datos_existentes['ids']) == 0:
+                self.arbol_conocimiento = etl.ejecutar_sincronizacion()
+        except Exception:
+            pass
+            
         todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
+        from chat_procesos import SupervisorEnrutamiento
         self.router = SupervisorEnrutamiento(self.llm, todas_cats)
 
     def procesar_consulta(self, consulta: str, contexto_previo: str, rol_usuario: str) -> str:
@@ -156,10 +148,10 @@ class CorusIntranetEngine:
         if clean in saludos or clean.startswith("hola "):
             return f"¡Hola {rol_usuario}! ¿En qué te puedo ayudar hoy con tus flujos y procesos?"
 
-        # --- 2. FILTRO DE CIERRE Y LIBERACIÓN DE MEMORIA ---
+        # --- 2. FILTRO DE CIERRE DE CASOS ---
         frases_cierre = ["gracias", "caso cerrado", "ya quedo", "listo", "fin", "muchas gracias"]
         if any(f in clean for f in frases_cierre):
-            return "🤖 **SISTEMA:** Caso cerrado formalmente. Memoria de contexto liberada. Estoy listo para procesar un nuevo caso, ¿en qué te puedo ayudar?"
+            return "🤖 **SISTEMA:** Caso cerrado formalmente. Memoria de contexto liberada en esta sesión. Estoy listo para procesar un nuevo caso, ¿en qué te puedo ayudar?"
 
         # --- 3. COMANDOS DE ADMINISTRADOR ---
         if rol_usuario == "Administrador":
@@ -174,18 +166,12 @@ class CorusIntranetEngine:
 
             if clean == "formatear sistema":
                 try:
-                    # 🚨 BORRADO LÓGICO SEGURO (Evita el bloqueo de Streamlit Cloud)
-                    try:
-                        self.vector_db.delete_collection()
-                    except:
-                        pass
-                    
-                    # Se re-instancia la base de datos limpia
+                    try: self.vector_db.delete_collection()
+                    except: pass
                     self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
                     self.archivos_procesados = set()
                     self.arbol_conocimiento = {}
                     self.router.categorias = set()
-                    
                     return "⚠️ **SISTEMA:** Base de datos compartida purgada con éxito de forma segura. Escribe 'actualizar base' para volver a cargar."
                 except Exception as e:
                     return f"❌ Error crítico al limpiar la base de datos: {e}"
@@ -220,24 +206,21 @@ class CorusIntranetEngine:
                 filtros["categoria"] = cat_detectada
                 etiqueta_contexto = f"la subcarpeta: {cat_detectada}"
 
-        # --- FASE 2: BÚSQUEDA RAG (MÁS FLEXIBLE / FALLBACK) ---
+        # --- FASE 2: BÚSQUEDA RAG (FLEXIBLE / FALLBACK) ---
         docs = []
         if filtros:
-            # Intento 1: Buscar estrictamente en la carpeta que mencionó el usuario
             docs = self.vector_db.similarity_search(consulta, k=20, filter=filtros)
             
         docs_validos = [d.page_content for d in docs if d and d.page_content]
 
-        # 🚨 LÓGICA DE RESPALDO (FALLBACK STRATEGY)
         if not docs_validos:
-            # Intento 2: Si la búsqueda estricta falla (o no hubo filtros), buscamos en TODOS los documentos
             docs = self.vector_db.similarity_search(consulta, k=20)
             docs_validos = [d.page_content for d in docs if d and d.page_content]
             if docs_validos:
                 etiqueta_contexto = "toda la base de datos (ampliando la búsqueda para encontrar coincidencias)"
         
         if not docs_validos:
-            return f"🤖 **SISTEMA:** Busqué en {etiqueta_contexto}, pero no encontré registros legibles. *(Verifica si los PDF son imágenes escaneadas que requieran OCR)*."
+            return f"🤖 **SISTEMA:** Busqué en {etiqueta_contexto}, pero no encontré registros legibles. *(Verifica el OCR de los PDFs)*."
 
         contexto_aislado = "\n\n".join(docs_validos)
 
