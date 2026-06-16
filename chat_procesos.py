@@ -4,16 +4,22 @@ import warnings
 import glob
 import re
 import shutil
-from typing import List, Optional, Set, Dict
+import time
+import logging
+import traceback
+from typing import List, Optional, Set, Dict, Tuple
 from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI
 
-# --- PARCHES DE INFRAESTRUCTURA ---
+# =====================================================================
+# 1. PARCHES DE INFRAESTRUCTURA Y CONFIGURACIÓN DE LOGS
+# =====================================================================
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 os.environ["CHROMA_CORE_ALLOW_RESET"] = "TRUE"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 if "HOME" not in os.environ:
     os.environ["HOME"] = "/tmp"
@@ -25,47 +31,100 @@ except ImportError:
     pass
 
 warnings.filterwarnings("ignore")
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+# Configuración de Logging Empresarial
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger("CorusEngine")
+
+# =====================================================================
+# 2. DEFINICIÓN DE ESTRUCTURAS Y CONFIGURACIÓN
+# =====================================================================
 class SistemaConfig:
+    """Clase estática que contiene la parametrización global del sistema."""
     CARPETA_DB: str = "/tmp/corus_chroma_db"
     MODELO_EMBEDDINGS: str = "sentence-transformers/all-MiniLM-L6-v2"
     MODELO_LLM: str = "gpt-4o-mini"
     CHUNK_SIZE: int = 1200
     CHUNK_OVERLAP: int = 200
-    TEMPERATURA_LLM: float = 0.0  
+    TEMPERATURA_LLM: float = 0.0
+    TIMEOUT_CONSULTA: int = 45
 
+class MonitorSistema:
+    """Audita el estado del entorno y los permisos antes de iniciar la IA."""
+    @staticmethod
+    def verificar_entorno() -> bool:
+        logger.info("Iniciando chequeo de salud del sistema (Health Check)...")
+        # 1. Verificar permisos de la carpeta temporal
+        try:
+            if not os.path.exists(SistemaConfig.CARPETA_DB):
+                os.makedirs(SistemaConfig.CARPETA_DB, exist_ok=True)
+            test_file = os.path.join(SistemaConfig.CARPETA_DB, ".test_write")
+            with open(test_file, "w") as f:
+                f.write("test")
+            os.remove(test_file)
+            logger.info("✅ Permisos de escritura en volumen virtual /tmp confirmados.")
+        except Exception as e:
+            logger.error(f"❌ Fallo crítico de permisos en Linux: {e}")
+            return False
+            
+        # 2. Verificar API Key
+        if "OPENAI_API_KEY" not in os.environ or len(os.environ["OPENAI_API_KEY"]) < 10:
+            try:
+                import streamlit as st
+                os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+                logger.info("✅ Llave de OpenAI cargada desde Streamlit Secrets.")
+            except Exception:
+                logger.critical("❌ No se detectó OPENAI_API_KEY en el entorno.")
+                return False
+                
+        return True
+
+# =====================================================================
+# 3. PIPELINE DE EXTRACCIÓN (ETL) Y GESTIÓN DE ARCHIVOS
+# =====================================================================
 class PipelineETL:
+    """Se encarga de la Extracción, Transformación y Carga de PDFs a la VectorDB."""
     def __init__(self, vector_db: Chroma, archivos_procesados: set):
         self.vector_db = vector_db
         self.config = SistemaConfig()
         self.archivos_procesados = archivos_procesados
 
     def _limpiar_texto_pdf(self, texto: str) -> str:
-        if texto is None: return ""
-        texto = str(texto).replace('\x00', '')
-        texto = re.sub(r'(?<!\n)\n(?!\n)', ' ', texto)
-        texto = re.sub(r'\s+', ' ', texto)
-        return texto.strip()
+        """Aplica expresiones regulares para sanitizar el OCR extraído."""
+        if not texto: return ""
+        try:
+            texto = str(texto).replace('\x00', '')
+            texto = re.sub(r'(?<!\n)\n(?!\n)', ' ', texto) # Une saltos de línea huérfanos
+            texto = re.sub(r'\s+', ' ', texto) # Elimina espacios múltiples
+            return texto.strip()
+        except Exception as e:
+            logger.warning(f"Error menor limpiando texto: {e}")
+            return ""
 
     def ejecutar_sincronizacion(self) -> Dict[str, Set[str]]:
+        """Busca PDFs nuevos, los procesa y actualiza el árbol de conocimiento."""
+        logger.info("Iniciando escaneo de directorio corporativo...")
         archivos_pdf = glob.glob("**/*.pdf", recursive=True)
         nuevos = [a for a in archivos_pdf if a not in self.archivos_procesados]
         arbol_conocimiento = {}
 
-        for a in archivos_pdf:
-            if "chroma_db" in a or ".git" in a or "__pycache__" in a: continue
-            partes = os.path.normpath(a).split(os.sep)
-            if len(partes) >= 2:
-                mod, cat = partes[0], partes[-2]
-            else:
-                mod, cat = "General", "Raíz"
+        # Mapeo del árbol existente (incluso sin archivos nuevos)
+        for archivo in archivos_pdf:
+            if "chroma_db" in archivo or ".git" in archivo or "__pycache__" in archivo: continue
+            partes = os.path.normpath(archivo).split(os.sep)
+            mod = partes[0] if len(partes) >= 2 else "Documentos Sueltos"
+            cat = partes[-2] if len(partes) >= 2 else "Raíz Principal"
             
             if mod not in arbol_conocimiento:
                 arbol_conocimiento[mod] = set()
             arbol_conocimiento[mod].add(cat)
 
         if not nuevos: 
+            logger.info("No se detectaron manuales nuevos. Sincronización omitida.")
             return arbol_conocimiento
 
         text_splitter = RecursiveCharacterTextSplitter(
@@ -74,10 +133,13 @@ class PipelineETL:
             chunk_overlap=self.config.CHUNK_OVERLAP
         )
         
+        archivos_exitosos = 0
+        archivos_fallidos = 0
+
         for archivo in nuevos:
             partes = os.path.normpath(archivo).split(os.sep)
-            mod = partes[0] if len(partes) >= 2 else "General"
-            cat = partes[-2] if len(partes) >= 2 else "Raíz"
+            mod = partes[0] if len(partes) >= 2 else "Documentos Sueltos"
+            cat = partes[-2] if len(partes) >= 2 else "Raíz Principal"
             
             try:
                 reader = PdfReader(archivo)
@@ -96,154 +158,228 @@ class PipelineETL:
                             self.vector_db.add_texts(enriquecidos, meta)
                             
                 self.archivos_procesados.add(archivo)
-            except Exception: 
-                pass
+                archivos_exitosos += 1
+                logger.info(f"✅ Ingestado: {archivo} ({texto_total_archivo} frags)")
+            except Exception as e:
+                archivos_fallidos += 1
+                logger.error(f"❌ Archivo corrupto o ilegible ({archivo}): {e}")
                 
+        logger.info(f"ETL Finalizado. Éxitos: {archivos_exitosos} | Fallos: {archivos_fallidos}")
         return arbol_conocimiento
 
+# =====================================================================
+# 4. ENRUTAMIENTO Y LÓGICA DE NEGOCIO
+# =====================================================================
+class SupervisorEnrutamiento:
+    """Agente de IA que decide en qué subcarpeta debe buscar la información."""
+    def __init__(self, llm: ChatOpenAI, categorias: Set[str]):
+        self.llm = llm
+        self.categorias = categorias
+
+    def determinar_dominio(self, pregunta: str) -> Optional[str]:
+        if not self.categorias: 
+            return None
+            
+        categorias_str = ', '.join(self.categorias)
+        prompt = f"""
+        Como Enrutador de Sistema, analiza esta consulta: '{pregunta}'.
+        Compara la consulta con estas subcarpetas disponibles: {categorias_str}.
+        Responde ÚNICAMENTE con el nombre exacto de la subcarpeta que mejor coincida.
+        Si la consulta es muy genérica o no tiene relación, responde: DESCONOCIDO.
+        """
+        
+        try:
+            resp = self.llm.invoke(prompt).content.strip()
+            for cat in self.categorias:
+                if cat.lower() in resp.lower(): 
+                    return cat
+            return None
+        except Exception as e:
+            logger.error(f"Fallo en el Supervisor de Enrutamiento: {e}")
+            return None
+
+# =====================================================================
+# 5. MOTOR PRINCIPAL (CEREBRO CENTRAL)
+# =====================================================================
 class CorusIntranetEngine:
+    """Clase principal que orquesta la RAG (Retrieval-Augmented Generation)."""
+    
     def __init__(self):
+        logger.info("Inicializando Motor Corus Intranet...")
         self.config = SistemaConfig()
         
-        if "OPENAI_API_KEY" not in os.environ or os.environ["OPENAI_API_KEY"] in ["#", "sk-pega-tu-clave-aqui"]:
-            try:
-                import streamlit as st
-                os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-            except Exception:
-                pass
-        
-        if not os.path.exists(self.config.CARPETA_DB):
-            os.makedirs(self.config.CARPETA_DB, exist_ok=True)
+        if not MonitorSistema.verificar_entorno():
+            logger.critical("SISTEMA DETENIDO POR FALLO DE ENTORNO.")
+            sys.exit(1)
 
         try:
+            logger.info("Cargando modelo de incrustaciones (Embeddings)...")
             self.embeddings = HuggingFaceEmbeddings(model_name=self.config.MODELO_EMBEDDINGS)
+            
+            logger.info("Conectando a base de datos vectorial ChromaDB...")
             self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
+            
+            logger.info("Instanciando LLM (Cerebro Semántico)...")
             self.llm = ChatOpenAI(model=self.config.MODELO_LLM, temperature=self.config.TEMPERATURA_LLM)
         except Exception as e:
-            print(f"❌ FALLO CRÍTICO DE CONEXIÓN: {e}")
+            logger.critical(f"Fallo en inicialización de modelos de IA: {e}")
+            logger.critical(traceback.format_exc())
             sys.exit(1)
             
         self.archivos_procesados = set()
         
-        # 🚨 SOLUCIÓN RAÍZ 1: Auto-Sincronización Inicial al encender el Servidor
+        # 🚨 Auto-Sincronización Silenciosa al arranque
         etl = PipelineETL(self.vector_db, self.archivos_procesados)
         self.arbol_conocimiento = etl.ejecutar_sincronizacion()
         
         try:
+            # Si el disco está vacío (Reinicio de Streamlit), forzar sincronización total
             datos_existentes = self.vector_db.get()
             if not datos_existentes or 'ids' not in datos_existentes or len(datos_existentes['ids']) == 0:
+                logger.warning("Base de datos detectada como vacía. Forzando ETL...")
+                self.archivos_procesados.clear()
                 self.arbol_conocimiento = etl.ejecutar_sincronizacion()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Error validando la integridad de ChromaDB: {e}")
             
         todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
-        from chat_procesos import SupervisorEnrutamiento
+        # IMPORTANTE: Eliminada la importación circular que rompía la aplicación.
         self.router = SupervisorEnrutamiento(self.llm, todas_cats)
+        logger.info("Motor Corus Intranet en línea y operativo.")
+
+    def _ejecutar_formateo_seguro(self) -> str:
+        """Borra la base de datos de manera tolerante a fallos y bloqueos de SO."""
+        try:
+            try:
+                # Borrado lógico preferido
+                self.vector_db.delete_collection()
+                logger.info("Colección ChromaDB borrada lógicamente.")
+            except Exception as e:
+                logger.warning(f"Aviso al borrar colección: {e}")
+            
+            # Pausa para liberar handles del disco (Linux tmpfs)
+            time.sleep(1.5)
+            
+            # Borrado físico si existe
+            if os.path.exists(self.config.CARPETA_DB):
+                shutil.rmtree(self.config.CARPETA_DB, ignore_errors=True)
+            os.makedirs(self.config.CARPETA_DB, exist_ok=True)
+            
+            # Reinstanciación limpia
+            self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
+            self.archivos_procesados.clear()
+            self.arbol_conocimiento.clear()
+            self.router.categorias.clear()
+            
+            return "⚠️ **SISTEMA:** Base de datos compartida purgada con éxito de forma segura. Escribe 'actualizar base' para reindexar."
+        except Exception as e:
+            error_detallado = traceback.format_exc()
+            logger.error(f"Error crítico en formateo: {error_detallado}")
+            return f"❌ Error crítico de infraestructura al limpiar: {str(e)}"
 
     def procesar_consulta(self, consulta: str, contexto_previo: str, rol_usuario: str) -> str:
+        """Función principal de respuesta (Entrypoint del Chat)."""
         clean = consulta.lower().strip()
+        logger.info(f"Procesando consulta de {rol_usuario} | Longitud: {len(consulta)} chars")
         
         # --- 1. FILTRO DE SALUDOS ---
         saludos = ["hola", "hola como estas", "hola cómo estás", "buenos dias", "buenas tardes", "que tal", "saludos"]
         if clean in saludos or clean.startswith("hola "):
-            return f"¡Hola {rol_usuario}! ¿En qué te puedo ayudar hoy con tus flujos y procesos?"
+            return f"¡Hola {rol_usuario}! ¿En qué te puedo ayudar hoy con la gestión de flujos y procesos?"
 
-        # --- 2. FILTRO DE CIERRE DE CASOS ---
-        frases_cierre = ["gracias", "caso cerrado", "ya quedo", "listo", "fin", "muchas gracias"]
-        if any(f in clean for f in frases_cierre):
-            return "🤖 **SISTEMA:** Caso cerrado formalmente. Memoria de contexto liberada en esta sesión. Estoy listo para procesar un nuevo caso, ¿en qué te puedo ayudar?"
+        # --- 2. FILTRO DE CIERRE DE CASOS (LIBERADOR DE FLUJO) ---
+        frases_cierre = ["gracias", "caso cerrado", "ya quedo", "listo", "fin", "muchas gracias", "ok gracias"]
+        if any(f == clean for f in frases_cierre) or any(clean.startswith(f) for f in frases_cierre):
+            logger.info("Comando de cierre detectado. Abortando búsqueda vectorial.")
+            return "🤖 **SISTEMA:** Caso cerrado formalmente. Memoria de contexto asegurada. Estoy listo para procesar un nuevo ticket o consulta."
 
-        # --- 3. COMANDOS DE ADMINISTRADOR ---
+        # --- 3. GESTIÓN DE COMANDOS DE ADMINISTRADOR ---
         if rol_usuario == "Administrador":
             if clean == "diagnostico":
                 try:
                     datos = self.vector_db.get()
                     total_frags = len(datos['ids']) if datos and 'ids' in datos else 0
                     archivos = list(self.archivos_procesados)
-                    return f"🛠️ **REPORTE TÉCNICO COMPARTIDO:**\n- Archivos PDF procesados: {len(archivos)}\n- Fragmentos extraídos: **{total_frags}**\n- Estructura: {list(self.arbol_conocimiento.keys())}"
+                    resumen = f"🛠️ **REPORTE TÉCNICO E INVENTARIO:**\n- PDFs en memoria: **{len(archivos)}**\n- Fragmentos vectorizados: **{total_frags}**\n- Subcarpetas Mapeadas: {list(self.router.categorias)}"
+                    return resumen
                 except Exception as e:
-                    return f"❌ Error en diagnóstico: {e}"
+                    return f"❌ Error recuperando diagnóstico: {e}"
 
             if clean == "formatear sistema":
-                try:
-                    try: self.vector_db.delete_collection()
-                    except: pass
-                    self.vector_db = Chroma(persist_directory=self.config.CARPETA_DB, embedding_function=self.embeddings)
-                    self.archivos_procesados = set()
-                    self.arbol_conocimiento = {}
-                    self.router.categorias = set()
-                    return "⚠️ **SISTEMA:** Base de datos compartida purgada con éxito de forma segura. Escribe 'actualizar base' para volver a cargar."
-                except Exception as e:
-                    return f"❌ Error crítico al limpiar la base de datos: {e}"
+                logger.warning("Usuario Administrador solicitó Hard Reset de la Base de Datos.")
+                return self._ejecutar_formateo_seguro()
 
-            comandos_actualizar = ["actualizar base", "cargar manuales", "actualizar manuales"]
+            comandos_actualizar = ["actualizar base", "cargar manuales", "actualizar manuales", "sincronizar"]
             if any(c in clean for c in comandos_actualizar):
+                logger.info("Usuario Administrador solicitó recálculo de ETL.")
                 etl = PipelineETL(self.vector_db, self.archivos_procesados)
                 self.arbol_conocimiento = etl.ejecutar_sincronizacion()
-                todas_cats = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
-                self.router.categorias = todas_cats
-                return "🤖 **SISTEMA:** ¡Sincronización completada! Ahora TODOS los usuarios pueden ver esta información."
-        elif clean in ["diagnostico", "formatear sistema", "actualizar base"]:
-            return "🚫 **ACCESO DENEGADO:** Este comando es exclusivo para Administradores."
+                self.router.categorias = {cat for cats in self.arbol_conocimiento.values() for cat in cats}
+                return "🤖 **SISTEMA:** ¡Sincronización RAG completada! Base de datos compartida actualizada con éxito."
+        elif clean in ["diagnostico", "formatear sistema", "actualizar base", "sincronizar"]:
+            logger.warning(f"Intento de vulneración: Usuario {rol_usuario} intentó usar comandos admin.")
+            return "🚫 **ACCESO DENEGADO:** Privilegios insuficientes. Este comando es exclusivo de Administradores de TI."
 
-        # --- FASE 1: ENRUTAMIENTO DOBLE ---
+        # --- FASE 1: DETERMINACIÓN DE CONTEXTO (ROUTING) ---
         filtros = {}
-        modulo_detectado = None
-        etiqueta_contexto = "toda la documentación corporativa"
+        etiqueta_contexto = "Toda la documentación corporativa"
 
-        for mod in self.arbol_conocimiento.keys():
-            mod_limpio = mod.lower().replace("manual", "").strip()
-            if mod_limpio and (mod_limpio in clean or mod.lower() in clean):
-                modulo_detectado = mod
-                break
+        modulo_detectado = next((mod for mod in self.arbol_conocimiento.keys() if mod.lower().replace("manual", "").strip() in clean and mod.lower().replace("manual", "").strip() != ""), None)
 
         if modulo_detectado:
             filtros["modulo"] = modulo_detectado
-            etiqueta_contexto = f"el Módulo: {modulo_detectado}"
+            etiqueta_contexto = f"Módulo: {modulo_detectado}"
         else:
             cat_detectada = self.router.determinar_dominio(consulta)
             if cat_detectada:
                 filtros["categoria"] = cat_detectada
-                etiqueta_contexto = f"la subcarpeta: {cat_detectada}"
+                etiqueta_contexto = f"Carpeta/Proceso: {cat_detectada}"
 
-        # --- FASE 2: BÚSQUEDA RAG (FLEXIBLE / FALLBACK) ---
+        # --- FASE 2: EXTRACCIÓN RAG (ESTRATEGIA FALLBACK / ALTA DISPONIBILIDAD) ---
         docs = []
+        logger.info(f"Búsqueda Fase 1: Intentando coincidencia estricta en [{etiqueta_contexto}]")
+        
         if filtros:
             docs = self.vector_db.similarity_search(consulta, k=20, filter=filtros)
             
         docs_validos = [d.page_content for d in docs if d and d.page_content]
 
         if not docs_validos:
+            logger.warning("Búsqueda Fase 1 fallida. Activando Protocolo Fallback (Ampliación de espectro).")
             docs = self.vector_db.similarity_search(consulta, k=20)
             docs_validos = [d.page_content for d in docs if d and d.page_content]
             if docs_validos:
-                etiqueta_contexto = "toda la base de datos (ampliando la búsqueda para encontrar coincidencias)"
+                etiqueta_contexto = "Búsqueda Ampliada (Toda la base de datos)"
         
         if not docs_validos:
-            return f"🤖 **SISTEMA:** Busqué en {etiqueta_contexto}, pero no encontré registros legibles. *(Verifica el OCR de los PDFs)*."
+            logger.error("Búsqueda Fase 2 fallida. No hay documentos legibles.")
+            return f"🤖 **SISTEMA:** Busqué exhaustivamente en {etiqueta_contexto}, pero no encontré registros legibles. *(Verifique si el PDF subido es una imagen escaneada que requiera OCR previo).*."
 
+        # --- FASE 3: GENERACIÓN AUMENTADA (INFERENCIA LLM) ---
         contexto_aislado = "\n\n".join(docs_validos)
+        
+        prompt_final = f"""Eres un Consultor y Analista de Procesos Senior en Corus. 
+Tu misión es conversar fluidamente y resolver la duda técnica del usuario de forma precisa y estructurada.
 
-        prompt_final = f"""Eres un Consultor y Analista de Procesos Senior. 
-Tu misión es conversar fluidamente con el usuario y proveer recomendaciones técnicas.
+REGLAS ESTRICTAS:
+1. Extrae y formatea tu respuesta basándote EXCLUSIVAMENTE en la siguiente documentación extraída de '{etiqueta_contexto}'.
+2. Si los fragmentos NO contienen la respuesta directa a la pregunta, debes ser honesto y decir exactamente: "Compañero, tras revisar {etiqueta_contexto}, no logré ubicar el procedimiento o solución explícita para este escenario en la documentación actual."
+3. Usa listas, negritas y formato markdown para que el analista entienda fácilmente el proceso.
 
-REGLAS:
-1. Extrae los pasos usando el contexto de '{etiqueta_contexto}' provisto abajo.
-2. Si los fragmentos no contienen información útil para el escenario, responde exactamente: "Compañero, revisando {etiqueta_contexto}, no encontré información documentada que nos sirva para este escenario específico."
-3. Responde de forma profesional en ESPAÑOL.
-
-HISTORIAL PREVIO DE ESTA SESIÓN:
+HISTORIAL PREVIO DEL CASO ACTUAL:
 {contexto_previo}
 
-DOCUMENTACIÓN EXTRAÍDA ({etiqueta_contexto}):
+DOCUMENTACIÓN OFICIAL (EXTRACCIÓN):
 {contexto_aislado}
 
-CONSULTA DEL USUARIO: {consulta}"""
+PREGUNTA DEL USUARIO: {consulta}"""
 
         res = ""
         try:
+            logger.info("Iniciando Streaming de respuesta desde el motor LLM...")
             for chunk in self.llm.stream(prompt_final):
                 res += chunk.content
             return res
         except Exception as e:
-            return f"❌ ERROR TÉCNICO API: {e}"
+            logger.critical(f"Fallo en la conexión de Inferencia API: {e}")
+            return f"❌ ERROR TÉCNICO EN LA RED: No se pudo generar la respuesta. Detalle: {str(e)}"
