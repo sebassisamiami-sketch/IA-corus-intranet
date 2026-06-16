@@ -1,7 +1,7 @@
 # ia_motor.py 
 """
 Motor IA centralizado para CorusIntranetEngine v2.0
-Implementa patrón Singleton con inicialización robusta
+Implementa patrón Singleton con inicialización robusta y prevención de alucinaciones
 """
 
 import logging
@@ -15,6 +15,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain_community.vectorstores import Chroma
 from langchain.chains import ConversationalRetrievalChain
 from langchain.schema import HumanMessage, AIMessage
+from langchain.prompts import PromptTemplate
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,7 @@ class CorusIntranetEngine:
             self.llm = ChatOpenAI(
                 api_key=self.api_key,
                 model="gpt-4o-mini",
-                temperature=0.7,
+                temperature=0.0, # Bajamos temperatura para procesos exactos
                 max_tokens=2048,
                 request_timeout=60
             )
@@ -148,23 +149,36 @@ class CorusIntranetEngine:
             raise
     
     def _crear_cadena(self):
-        """Crear cadena de conversación"""
+        """Crear cadena de conversación con Prompt Corporativo Estricto"""
         logger.info("🔄 Creando cadena...")
         try:
             if self.vectorstore and self.llm:
+                # 🚨 Prompt personalizado para evitar alucinaciones
+                prompt_template = """Eres un Consultor y Analista de Procesos Senior en Corus.
+Tu misión es resolver la duda técnica del usuario basándote EXCLUSIVAMENTE en la documentación provista.
+Si no encuentras la respuesta exacta en los fragmentos extraídos, debes decir honestamente: "Compañero, tras revisar la base de datos corporativa, no logré ubicar el procedimiento explícito para este escenario." NO inventes información ni asumas pasos que no estén en el texto.
+
+Documentos oficiales extraídos:
+{context}
+
+Pregunta del usuario: {question}
+Respuesta experta (usa listas, negritas y formato claro para el analista):"""
+                
+                PROMPT = PromptTemplate(
+                    template=prompt_template, input_variables=["context", "question"]
+                )
+
                 self.chain = ConversationalRetrievalChain.from_llm(
                     llm=self.llm,
-                    retriever=self.vectorstore.as_retriever(
-                        search_kwargs={"k": 5}
-                    ),
+                    retriever=self.vectorstore.as_retriever(search_kwargs={"k": 6}),
                     memory=self.memory,
                     return_source_documents=True,
+                    combine_docs_chain_kwargs={"prompt": PROMPT},
                     verbose=False,
                     get_chat_history=lambda h: h
                 )
-                logger.info("✅ Cadena con retriever creada")
+                logger.info("✅ Cadena con retriever y prompt corporativo estricto creada")
             else:
-                # Cadena sin retriever si no hay vectorstore
                 logger.warning("⚠️ Cadena sin retriever (no hay vectorstore)")
                 self.chain = None
         
@@ -173,16 +187,7 @@ class CorusIntranetEngine:
             self.chain = None
     
     def query(self, pregunta: str, contexto: Dict = None) -> Dict[str, Any]:
-        """
-        Ejecutar query al motor IA
-        
-        Args:
-            pregunta: Pregunta del usuario
-            contexto: Contexto adicional (rol, usuario, etc)
-        
-        Returns:
-            Dict con respuesta, sources y metadata
-        """
+        """Ejecutar query al motor IA"""
         try:
             if self.estado != "listo":
                 return {
@@ -194,7 +199,6 @@ class CorusIntranetEngine:
                 }
             
             if not self.chain:
-                # Fallback: usar solo el LLM sin retriever
                 logger.warning("⚠️ Chain no disponible, usando LLM directo")
                 respuesta_llm = self.llm.invoke([
                     HumanMessage(content=pregunta)
