@@ -1,481 +1,310 @@
-# procesar_datos.py - Procesamiento de Datos y Documentos
+# procesar_datos.py - Procesador de Datos PDF
 """
-Módulo de procesamiento de documentos PDF y creación de vectorstore
-Gestiona carga, división y almacenamiento de embeddings
+Procesa PDFs desde carpetas parafiscales y pensiones
+Genera vectorstore para RAG
 """
 
 import logging
 import os
-from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
-from datetime import datetime
 import json
-
-from langchain_community.document_loaders import PyPDFLoader
+from pathlib import Path
+from typing import List, Dict, Tuple
+from datetime import datetime
+from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
-from langchain.schema import Document
+from langchain_community.vectorstores import Chroma
 
-# Configurar logging
 logger = logging.getLogger(__name__)
 
 class DataProcessor:
     """
-    Procesador de datos y documentos PDF
-    Gestiona carga, división, vectorización e indexación de documentos
+    Procesa documentos PDF y los indexa en vectorstore
+    Soporta carpetas parafiscales y pensiones
     """
     
-    def __init__(
-        self, 
-        pdf_dir: str = "data/pdfs", 
-        db_path: str = "data/db/chroma_db",
-        api_key: Optional[str] = None
-    ):
+    def __init__(self, api_key: str = None):
         """
-        Inicializar procesador de datos
+        Inicializar processor
         
         Args:
-            pdf_dir: Directorio de PDFs
-            db_path: Ruta de la base de datos Chroma
-            api_key: API key de OpenAI (si no está en .env)
-        
-        Raises:
-            ValueError: Si no hay API key disponible
+            api_key: API key de OpenAI (si no está en env)
         """
-        self.pdf_dir = pdf_dir
-        self.db_path = db_path
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self.vectorstore_path = "data/db/chroma_db"
+        self.estadisticas_path = "data/estadisticas.json"
         
-        if not self.api_key:
-            raise ValueError("❌ OPENAI_API_KEY no configurada")
+        Path(self.vectorstore_path).mkdir(parents=True, exist_ok=True)
         
-        # Crear directorios si no existen
-        Path(pdf_dir).mkdir(parents=True, exist_ok=True)
-        Path(db_path).mkdir(parents=True, exist_ok=True)
+        self.embeddings = None
+        self.vectorstore = None
+        self.splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200,
+            separators=["\n\n", "\n", " ", ""]
+        )
         
-        # Estadísticas
-        self.stats = {
-            'pdfs_procesados': 0,
-            'total_documentos': 0,
-            'total_chunks': 0,
-            'tiempo_procesamiento': 0,
-            'ultima_actualizacion': None
-        }
-        
-        self._cargar_estadisticas()
-        logger.info(f"✅ DataProcessor inicializado")
-        logger.info(f"   📂 PDFs: {pdf_dir}")
-        logger.info(f"   🗂️ DB: {db_path}")
+        logger.info("DataProcessor inicializado")
     
-    def _cargar_estadisticas(self):
-        """Cargar estadísticas previas desde archivo"""
-        stats_file = Path(self.db_path) / "estadisticas.json"
-        try:
-            if stats_file.exists():
-                with open(stats_file, 'r', encoding='utf-8') as f:
-                    self.stats = json.load(f)
-                logger.info(f"✅ Estadísticas cargadas: {self.stats['pdfs_procesados']} PDFs")
-        except Exception as e:
-            logger.warning(f"⚠️ No se pudieron cargar estadísticas: {e}")
-    
-    def _guardar_estadisticas(self):
-        """Guardar estadísticas actual en archivo"""
-        try:
-            stats_file = Path(self.db_path) / "estadisticas.json"
-            self.stats['ultima_actualizacion'] = datetime.now().isoformat()
-            
-            with open(stats_file, 'w', encoding='utf-8') as f:
-                json.dump(self.stats, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"⚠️ Error guardando estadísticas: {e}")
-    
-    def listar_pdfs(self) -> List[Tuple[str, int]]:
-        """
-        Listar todos los PDFs disponibles
-        
-        Returns:
-            Lista de tuplas (nombre_archivo, tamaño_kb)
-        """
-        pdfs = []
-        
-        try:
-            pdf_dir = Path(self.pdf_dir)
-            
-            if not pdf_dir.exists():
-                logger.warning(f"⚠️ Directorio {self.pdf_dir} no existe")
-                return pdfs
-            
-            for pdf_file in pdf_dir.glob("*.pdf"):
-                tamaño_kb = pdf_file.stat().st_size / 1024
-                pdfs.append((pdf_file.name, tamaño_kb))
-            
-            return sorted(pdfs, key=lambda x: x[0])
-        
-        except Exception as e:
-            logger.error(f"❌ Error listando PDFs: {e}")
-            return pdfs
-    
-    def cargar_pdfs(self, filtro: Optional[str] = None) -> Tuple[List[Document], int]:
-        """
-        Cargar todos los PDFs del directorio
-        
-        Args:
-            filtro: Opcional - filtrar por nombre de archivo
-        
-        Returns:
-            Tupla (lista de documentos, número de páginas totales)
-        """
-        documentos = []
-        total_paginas = 0
-        
-        try:
-            pdf_dir = Path(self.pdf_dir)
-            
-            if not pdf_dir.exists():
-                logger.warning(f"⚠️ Directorio {self.pdf_dir} no existe")
-                return documentos, total_paginas
-            
-            archivos_pdf = list(pdf_dir.glob("*.pdf"))
-            
-            if not archivos_pdf:
-                logger.warning(f"⚠️ No se encontraron PDFs en {self.pdf_dir}")
-                return documentos, total_paginas
-            
-            logger.info(f"📂 Encontrados {len(archivos_pdf)} archivos PDF")
-            
-            for pdf_file in archivos_pdf:
-                # Aplicar filtro si existe
-                if filtro and filtro.lower() not in pdf_file.name.lower():
-                    continue
-                
-                try:
-                    logger.info(f"📄 Cargando {pdf_file.name}...")
-                    
-                    loader = PyPDFLoader(str(pdf_file))
-                    docs = loader.load()
-                    
-                    # Agregar metadata
-                    for doc in docs:
-                        doc.metadata['source'] = pdf_file.name
-                        doc.metadata['ruta_completa'] = str(pdf_file)
-                    
-                    documentos.extend(docs)
-                    total_paginas += len(docs)
-                    
-                    logger.info(f"✅ {pdf_file.name}: {len(docs)} páginas")
-                
-                except Exception as e:
-                    logger.error(f"❌ Error cargando {pdf_file.name}: {e}")
-                    continue
-            
-            logger.info(f"✅ Total: {len(documentos)} documentos, {total_paginas} páginas")
-            return documentos, total_paginas
-        
-        except Exception as e:
-            logger.error(f"❌ Error en cargar_pdfs: {e}")
-            return documentos, total_paginas
-    
-    def dividir_documentos(
-        self, 
-        documentos: List[Document],
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200
-    ) -> List[Document]:
-        """
-        Dividir documentos en chunks procesables
-        
-        Args:
-            documentos: Lista de documentos
-            chunk_size: Tamaño de cada chunk
-            chunk_overlap: Superposición entre chunks
-        
-        Returns:
-            Lista de chunks
-        """
-        try:
-            if not documentos:
-                logger.warning("⚠️ Sin documentos para dividir")
-                return []
-            
-            logger.info(f"✂️ Dividiendo {len(documentos)} documentos...")
-            
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap,
-                separators=["\n\n", "\n", " ", ""],
-                length_function=len
-            )
-            
-            chunks = splitter.split_documents(documentos)
-            
-            logger.info(f"✅ {len(chunks)} chunks creados")
-            self.stats['total_chunks'] = len(chunks)
-            
-            return chunks
-        
-        except Exception as e:
-            logger.error(f"❌ Error dividiendo documentos: {e}")
-            return []
-    
-    def crear_vectorstore(
-        self, 
-        documentos: List[Document],
-        modo: str = "create"
-    ) -> bool:
-        """
-        Crear o actualizar vectorstore de Chroma
-        
-        Args:
-            documentos: Lista de documentos/chunks
-            modo: 'create' (nuevo) o 'add' (agregar a existente)
-        
-        Returns:
-            True si éxito, False si falla
-        """
-        try:
-            if not documentos:
-                logger.warning("⚠️ Sin documentos para vectorizar")
-                return False
-            
-            logger.info(f"🔧 {'Creando' if modo == 'create' else 'Actualizando'} vectorstore...")
-            logger.info(f"   📊 {len(documentos)} documentos")
-            
-            # Crear embeddings
-            embeddings = OpenAIEmbeddings(
+    def _inicializar_embeddings(self):
+        """Inicializar embeddings"""
+        if not self.embeddings:
+            self.embeddings = OpenAIEmbeddings(
                 api_key=self.api_key,
                 model="text-embedding-3-small"
             )
-            
-            if modo == "create":
-                # Crear nuevo vectorstore
-                vectorstore = Chroma.from_documents(
-                    documents=documentos,
-                    embedding=embeddings,
-                    persist_directory=self.db_path,
-                    collection_name="corus_documentos"
-                )
-            else:
-                # Cargar existente y agregar
-                vectorstore = Chroma(
-                    persist_directory=self.db_path,
-                    embedding_function=embeddings,
-                    collection_name="corus_documentos"
-                )
-                vectorstore.add_documents(documentos)
-            
-            # Persistir
-            vectorstore.persist()
-            
-            logger.info(f"✅ Vectorstore guardado en {self.db_path}")
-            self.stats['pdfs_procesados'] += 1
-            self.stats['total_documentos'] = len(documentos)
-            self._guardar_estadisticas()
-            
-            return True
-        
-        except Exception as e:
-            logger.error(f"❌ Error creando vectorstore: {e}")
-            return False
     
-    def procesar_todos(
+    def _cargar_vectorstore(self):
+        """Cargar vectorstore"""
+        if not self.vectorstore:
+            self._inicializar_embeddings()
+            self.vectorstore = Chroma(
+                persist_directory=self.vectorstore_path,
+                embedding_function=self.embeddings,
+                collection_name="corus_documentos"
+            )
+    
+    def procesar_carpeta(
         self,
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
-        modo: str = "create"
-    ) -> Dict[str, Any]:
+        ruta_carpeta: str,
+        tipo_documento: str = "general"
+    ) -> Dict[str, any]:
         """
-        Pipeline completo: cargar → dividir → vectorizar
+        Procesar todos los PDFs en una carpeta
         
         Args:
-            chunk_size: Tamaño de chunks
-            chunk_overlap: Superposición entre chunks
-            modo: 'create' o 'add'
+            ruta_carpeta: Ruta de la carpeta
+            tipo_documento: Tipo (parafiscales/pensiones/general)
         
         Returns:
-            Dict con resultados del procesamiento
+            Dict con estadísticas
         """
-        inicio = datetime.now()
-        
         try:
-            logger.info("🚀 Iniciando procesamiento completo de datos...")
+            logger.info(f"🔄 Procesando carpeta: {ruta_carpeta}")
             
-            # 1. Cargar PDFs
-            logger.info("📥 Paso 1: Cargando PDFs...")
-            documentos, total_paginas = self.cargar_pdfs()
-            
-            if not documentos:
-                logger.warning("⚠️ No se cargaron documentos")
+            if not Path(ruta_carpeta).exists():
+                logger.error(f"❌ Carpeta no existe: {ruta_carpeta}")
                 return {
-                    'exitoso': False,
-                    'mensaje': 'No se encontraron PDFs para procesar',
-                    'detalles': {}
+                    'exito': False,
+                    'error': f"Carpeta no encontrada: {ruta_carpeta}",
+                    'archivos_procesados': 0
                 }
             
-            # 2. Dividir documentos
-            logger.info("✂️ Paso 2: Dividiendo documentos...")
-            chunks = self.dividir_documentos(
-                documentos,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap
-            )
+            archivos_pdf = list(Path(ruta_carpeta).glob("**/*.pdf"))
             
-            if not chunks:
-                logger.warning("⚠️ Error al dividir documentos")
+            if not archivos_pdf:
+                logger.warning(f"⚠️ No hay PDFs en {ruta_carpeta}")
                 return {
-                    'exitoso': False,
-                    'mensaje': 'Error al dividir documentos',
-                    'detalles': {}
+                    'exito': True,
+                    'archivos_procesados': 0,
+                    'advertencia': 'No hay PDFs en la carpeta'
                 }
             
-            # 3. Vectorizar
-            logger.info("🔧 Paso 3: Creando vectorstore...")
-            exito = self.crear_vectorstore(chunks, modo=modo)
+            logger.info(f"📄 Encontrados {len(archivos_pdf)} PDFs")
             
-            tiempo_total = (datetime.now() - inicio).total_seconds()
-            self.stats['tiempo_procesamiento'] = tiempo_total
+            self._cargar_vectorstore()
             
-            if exito:
-                resultado = {
-                    'exitoso': True,
-                    'mensaje': '✅ Procesamiento completado exitosamente',
-                    'detalles': {
-                        'pdfs_procesados': len(self.listar_pdfs()),
-                        'documentos_cargados': len(documentos),
-                        'paginas_totales': total_paginas,
-                        'chunks_creados': len(chunks),
-                        'tiempo_segundos': round(tiempo_total, 2),
-                        'base_datos': self.db_path
-                    }
-                }
-                logger.info(f"✅ Procesamiento completado en {tiempo_total:.2f}s")
-                return resultado
-            else:
-                return {
-                    'exitoso': False,
-                    'mensaje': 'Error al crear vectorstore',
-                    'detalles': {}
-                }
+            estadisticas = {
+                'carpeta': ruta_carpeta,
+                'tipo': tipo_documento,
+                'archivos_totales': len(archivos_pdf),
+                'archivos_procesados': 0,
+                'archivos_error': 0,
+                'chunks_creados': 0,
+                'timestamp': datetime.now().isoformat(),
+                'archivos_detalles': []
+            }
+            
+            for archivo in archivos_pdf:
+                try:
+                    logger.info(f"📥 Procesando: {archivo.name}")
+                    
+                    resultado = self._procesar_pdf(
+                        str(archivo),
+                        tipo_documento
+                    )
+                    
+                    if resultado['exito']:
+                        estadisticas['archivos_procesados'] += 1
+                        estadisticas['chunks_creados'] += resultado['chunks']
+                        estadisticas['archivos_detalles'].append({
+                            'nombre': archivo.name,
+                            'chunks': resultado['chunks'],
+                            'tamaño_kb': resultado['tamaño_kb'],
+                            'estado': 'OK'
+                        })
+                        logger.info(f"✅ {archivo.name}: {resultado['chunks']} chunks")
+                    else:
+                        estadisticas['archivos_error'] += 1
+                        estadisticas['archivos_detalles'].append({
+                            'nombre': archivo.name,
+                            'estado': 'ERROR',
+                            'error': resultado.get('error', 'Desconocido')
+                        })
+                
+                except Exception as e:
+                    logger.error(f"❌ Error procesando {archivo.name}: {e}")
+                    estadisticas['archivos_error'] += 1
+            
+            # Guardar estadísticas
+            self._guardar_estadisticas(estadisticas)
+            
+            logger.info(f"✅ Carpeta procesada: {estadisticas['archivos_procesados']}/{len(archivos_pdf)}")
+            
+            return {
+                'exito': True,
+                **estadisticas
+            }
         
         except Exception as e:
-            logger.error(f"❌ Error en procesar_todos: {e}")
+            logger.error(f"❌ Error procesando carpeta: {e}", exc_info=True)
             return {
-                'exitoso': False,
-                'mensaje': f'Error durante procesamiento: {str(e)}',
-                'detalles': {}
+                'exito': False,
+                'error': str(e),
+                'archivos_procesados': 0
             }
     
-    def procesar_pdf_individual(self, nombre_archivo: str) -> Dict[str, Any]:
+    def _procesar_pdf(
+        self,
+        ruta_pdf: str,
+        tipo_documento: str = "general"
+    ) -> Dict[str, any]:
         """
         Procesar un PDF individual
         
         Args:
-            nombre_archivo: Nombre del archivo PDF
+            ruta_pdf: Ruta del PDF
+            tipo_documento: Tipo de documento
         
         Returns:
-            Dict con resultado del procesamiento
+            Dict con resultado
         """
         try:
-            logger.info(f"📄 Procesando PDF individual: {nombre_archivo}")
+            # Leer PDF
+            with open(ruta_pdf, 'rb') as f:
+                pdf_reader = PdfReader(f)
+                texto_completo = ""
+                
+                for num_pagina, pagina in enumerate(pdf_reader.pages):
+                    texto_completo += f"\n[Página {num_pagina + 1}]\n"
+                    texto_completo += pagina.extract_text() or ""
             
-            # Cargar solo este PDF
-            pdf_path = Path(self.pdf_dir) / nombre_archivo
-            
-            if not pdf_path.exists():
+            if not texto_completo.strip():
                 return {
-                    'exitoso': False,
-                    'mensaje': f'Archivo no encontrado: {nombre_archivo}'
+                    'exito': False,
+                    'error': 'No se pudo extraer texto del PDF'
                 }
             
-            loader = PyPDFLoader(str(pdf_path))
-            docs = loader.load()
+            # Dividir en chunks
+            chunks = self.splitter.split_text(texto_completo)
             
-            # Dividir
-            chunks = self.dividir_documentos(docs)
+            if not chunks:
+                return {
+                    'exito': False,
+                    'error': 'No se pudieron crear chunks'
+                }
             
-            # Vectorizar (agregar al existente)
-            exito = self.crear_vectorstore(chunks, modo="add")
+            # Crear metadatos
+            tamaño_kb = os.path.getsize(ruta_pdf) / 1024
+            metadata_base = {
+                'source': Path(ruta_pdf).name,
+                'tipo': tipo_documento,
+                'ruta_completa': ruta_pdf,
+                'fecha_procesamiento': datetime.now().isoformat(),
+                'num_paginas': len(pdf_reader.pages),
+                'tamaño_kb': round(tamaño_kb, 2)
+            }
+            
+            # Agregar al vectorstore
+            documentos = [
+                {
+                    'page_content': chunk,
+                    'metadata': {
+                        **metadata_base,
+                        'chunk_id': i
+                    }
+                }
+                for i, chunk in enumerate(chunks)
+            ]
+            
+            self.vectorstore.add_texts(
+                texts=[doc['page_content'] for doc in documentos],
+                metadatas=[doc['metadata'] for doc in documentos]
+            )
             
             return {
-                'exitoso': exito,
-                'mensaje': f'{"✅" if exito else "❌"} PDF procesado',
-                'detalles': {
-                    'archivo': nombre_archivo,
-                    'paginas': len(docs),
-                    'chunks': len(chunks)
-                }
+                'exito': True,
+                'chunks': len(chunks),
+                'tamaño_kb': round(tamaño_kb, 2),
+                'num_paginas': len(pdf_reader.pages)
             }
         
         except Exception as e:
             logger.error(f"❌ Error procesando PDF: {e}")
             return {
-                'exitoso': False,
-                'mensaje': f'Error: {str(e)}'
+                'exito': False,
+                'error': str(e)
             }
     
-    def obtener_estadisticas(self) -> Dict[str, Any]:
-        """
-        Obtener estadísticas de procesamiento
-        
-        Returns:
-            Dict con estadísticas
-        """
-        pdfs = self.listar_pdfs()
-        
-        return {
-            'pdfs_disponibles': len(pdfs),
-            'pdfs_procesados': self.stats.get('pdfs_procesados', 0),
-            'total_documentos': self.stats.get('total_documentos', 0),
-            'total_chunks': self.stats.get('total_chunks', 0),
-            'tiempo_procesamiento_segundos': self.stats.get('tiempo_procesamiento', 0),
-            'ultima_actualizacion': self.stats.get('ultima_actualizacion', 'Nunca'),
-            'tamaño_db_mb': self._obtener_tamaño_db(),
-            'directorio_pdfs': self.pdf_dir,
-            'directorio_db': self.db_path
-        }
-    
-    def _obtener_tamaño_db(self) -> float:
-        """Obtener tamaño de la base de datos en MB"""
+    def _guardar_estadisticas(self, stats: Dict):
+        """Guardar estadísticas en JSON"""
         try:
-            total_size = 0
-            for dirpath, dirnames, filenames in os.walk(self.db_path):
-                for filename in filenames:
-                    filepath = os.path.join(dirpath, filename)
-                    if os.path.exists(filepath):
-                        total_size += os.path.getsize(filepath)
+            Path(self.estadisticas_path).parent.mkdir(parents=True, exist_ok=True)
             
-            return round(total_size / (1024 * 1024), 2)
+            with open(self.estadisticas_path, 'w', encoding='utf-8') as f:
+                json.dump(stats, f, ensure_ascii=False, indent=2)
+        
         except Exception as e:
-            logger.warning(f"⚠️ Error calculando tamaño: {e}")
-            return 0.0
+            logger.warning(f"⚠️ No se pudieron guardar estadísticas: {e}")
+    
+    def obtener_estadisticas(self) -> Dict:
+        """Obtener últimas estadísticas"""
+        try:
+            if Path(self.estadisticas_path).exists():
+                with open(self.estadisticas_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except:
+            pass
+        return {}
     
     def limpiar_vectorstore(self) -> bool:
-        """
-        Limpiar y reiniciar vectorstore
-        
-        Returns:
-            True si éxito, False si falla
-        """
+        """Limpiar vectorstore (solo admin)"""
         try:
             import shutil
+            if Path(self.vectorstore_path).exists():
+                shutil.rmtree(self.vectorstore_path)
+            Path(self.vectorstore_path).mkdir(parents=True, exist_ok=True)
             
-            if os.path.exists(self.db_path):
-                shutil.rmtree(self.db_path)
-                Path(self.db_path).mkdir(parents=True, exist_ok=True)
-                
-                self.stats = {
-                    'pdfs_procesados': 0,
-                    'total_documentos': 0,
-                    'total_chunks': 0,
-                    'tiempo_procesamiento': 0,
-                    'ultima_actualizacion': None
-                }
-                self._guardar_estadisticas()
-                
-                logger.info("🗑️ Vectorstore limpiado")
-                return True
-        
+            self.vectorstore = None
+            logger.info("✅ Vectorstore limpiado")
+            return True
         except Exception as e:
             logger.error(f"❌ Error limpiando vectorstore: {e}")
-        
-        return False
+            return False
+    
+    def obtener_estado_bd(self) -> Dict[str, Any]:
+        """Obtener estado actual de la BD"""
+        try:
+            self._cargar_vectorstore()
+            
+            doc_count = self.vectorstore._collection.count()
+            tamaño_mb = 0
+            
+            if Path(self.vectorstore_path).exists():
+                import shutil
+                tamaño_mb = shutil.disk_usage(self.vectorstore_path).used / (1024 * 1024)
+            
+            return {
+                'documentos': doc_count,
+                'tamaño_mb': round(tamaño_mb, 2),
+                'ruta': self.vectorstore_path,
+                'estado': 'activa'
+            }
+        except Exception as e:
+            logger.error(f"Error obteniendo estado BD: {e}")
+            return {
+                'documentos': 0,
+                'tamaño_mb': 0,
+                'estado': 'error',
+                'error': str(e)
+            }
