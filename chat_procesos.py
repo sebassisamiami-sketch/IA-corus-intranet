@@ -128,7 +128,6 @@ class CorusIntranetEngine:
             except Exception:
                 pass
         
-        # Crear la carpeta temporal si no existe
         if not os.path.exists(self.config.CARPETA_DB):
             os.makedirs(self.config.CARPETA_DB, exist_ok=True)
 
@@ -153,13 +152,12 @@ class CorusIntranetEngine:
         if clean in saludos or clean.startswith("hola "):
             return f"¡Hola {rol_usuario}! ¿En qué te puedo ayudar hoy con tus flujos y procesos?"
 
-        # --- 2. FILTRO DE CIERRE Y LIBERACIÓN DE MEMORIA (EL BUGFIX APLICADO CORRECTAMENTE) ---
+        # --- 2. FILTRO DE CIERRE Y LIBERACIÓN DE MEMORIA ---
         frases_cierre = ["gracias", "caso cerrado", "ya quedo", "listo", "fin", "muchas gracias"]
         if any(f in clean for f in frases_cierre):
-            # Aquí el sistema detecta que terminaste y NO busca en la base de datos, evitando el bug
             return "🤖 **SISTEMA:** Caso cerrado formalmente. Memoria de contexto liberada. Estoy listo para procesar un nuevo caso, ¿en qué te puedo ayudar?"
 
-        # --- 3. COMANDOS EXCLUSIVOS DE ADMINISTRADOR ---
+        # --- 3. COMANDOS DE ADMINISTRADOR ---
         if rol_usuario == "Administrador":
             if clean == "diagnostico":
                 try:
@@ -172,7 +170,6 @@ class CorusIntranetEngine:
 
             if clean == "formatear sistema":
                 try:
-                    # Borramos la base de datos de la carpeta compartida
                     try:
                         self.vector_db.delete_collection()
                     except: pass
@@ -218,16 +215,24 @@ class CorusIntranetEngine:
                 filtros["categoria"] = cat_detectada
                 etiqueta_contexto = f"la subcarpeta: {cat_detectada}"
 
-        # --- FASE 2: BÚSQUEDA RAG ---
+        # --- FASE 2: BÚSQUEDA RAG (MÁS FLEXIBLE) ---
+        docs = []
         if filtros:
+            # Intento 1: Buscar estrictamente en la carpeta que mencionó el usuario
             docs = self.vector_db.similarity_search(consulta, k=20, filter=filtros)
-        else:
-            docs = self.vector_db.similarity_search(consulta, k=20)
-
+            
         docs_validos = [d.page_content for d in docs if d and d.page_content]
+
+        # 🚨 LÓGICA DE RESPALDO (FALLBACK STRATEGY)
+        if not docs_validos:
+            # Intento 2: Si la búsqueda estricta falla, quitamos el filtro y buscamos en TODOS los documentos
+            docs = self.vector_db.similarity_search(consulta, k=20)
+            docs_validos = [d.page_content for d in docs if d and d.page_content]
+            if docs_validos:
+                etiqueta_contexto = "toda la base de datos (ampliando la búsqueda para encontrar coincidencias)"
         
         if not docs_validos:
-            return f"🤖 **SISTEMA:** Busqué en {etiqueta_contexto}, pero no encontré registros legibles."
+            return f"🤖 **SISTEMA:** Busqué en {etiqueta_contexto}, pero no encontré registros legibles. *(Verifica si los PDF son imágenes escaneadas que requieran OCR)*."
 
         contexto_aislado = "\n\n".join(docs_validos)
 
