@@ -88,8 +88,7 @@ class CorusIntranetEngine:
         logger.info("🔄 Creando embeddings...")
         try:
             self.embeddings = OpenAIEmbeddings(
-                api_key=self.api_key,
-                model="text-embedding-3-small"
+                openai_api_key=self.api_key
             )
             logger.info("✅ Embeddings creados")
         except Exception as e:
@@ -121,9 +120,9 @@ class CorusIntranetEngine:
         logger.info("🔄 Creando LLM...")
         try:
             self.llm = ChatOpenAI(
-                api_key=self.api_key,
-                model="gpt-4o-mini",
-                temperature=0.0, # Bajamos temperatura para procesos exactos
+                openai_api_key=self.api_key,
+                model_name="gpt-4o-mini",
+                temperature=0.0,
                 max_tokens=2048,
                 request_timeout=60
             )

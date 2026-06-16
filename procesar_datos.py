@@ -46,8 +46,7 @@ class DataProcessor:
         """Inicializar embeddings"""
         if not self.embeddings:
             self.embeddings = OpenAIEmbeddings(
-                api_key=self.api_key,
-                model="text-embedding-3-small"
+                openai_api_key=self.api_key
             )
     
     def _cargar_vectorstore(self, reset: bool = False):
