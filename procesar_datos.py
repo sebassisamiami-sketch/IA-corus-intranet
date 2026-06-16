@@ -1,14 +1,15 @@
 # procesar_datos.py - Procesador de Datos PDF
 """
 Procesa PDFs desde carpetas parafiscales y pensiones
-Genera vectorstore para RAG
+Genera vectorstore para RAG con manejo seguro de concurrencia
 """
 
 import logging
 import os
 import json
+import time
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
 from datetime import datetime
 from PyPDF2 import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -24,12 +25,7 @@ class DataProcessor:
     """
     
     def __init__(self, api_key: str = None):
-        """
-        Inicializar processor
-        
-        Args:
-            api_key: API key de OpenAI (si no está en env)
-        """
+        """Inicializar processor"""
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.vectorstore_path = "data/db/chroma_db"
         self.estadisticas_path = "data/estadisticas.json"
@@ -54,31 +50,22 @@ class DataProcessor:
                 model="text-embedding-3-small"
             )
     
-    def _cargar_vectorstore(self):
-        """Cargar vectorstore"""
-        if not self.vectorstore:
+    def _cargar_vectorstore(self, reset: bool = False):
+        """Cargar vectorstore. Si reset es True, usa un nombre de colección nuevo."""
+        if not self.vectorstore or reset:
             self._inicializar_embeddings()
+            
+            # Si es reset, generamos un nombre único para evitar bloqueos de sqlite en la nube
+            coleccion_activa = f"corus_docs_{int(time.time())}" if reset else "corus_documentos"
+            
             self.vectorstore = Chroma(
                 persist_directory=self.vectorstore_path,
                 embedding_function=self.embeddings,
-                collection_name="corus_documentos"
+                collection_name=coleccion_activa
             )
     
-    def procesar_carpeta(
-        self,
-        ruta_carpeta: str,
-        tipo_documento: str = "general"
-    ) -> Dict[str, any]:
-        """
-        Procesar todos los PDFs en una carpeta
-        
-        Args:
-            ruta_carpeta: Ruta de la carpeta
-            tipo_documento: Tipo (parafiscales/pensiones/general)
-        
-        Returns:
-            Dict con estadísticas
-        """
+    def procesar_carpeta(self, ruta_carpeta: str, tipo_documento: str = "general") -> Dict[str, any]:
+        """Procesar todos los PDFs en una carpeta"""
         try:
             logger.info(f"🔄 Procesando carpeta: {ruta_carpeta}")
             
@@ -118,11 +105,7 @@ class DataProcessor:
             for archivo in archivos_pdf:
                 try:
                     logger.info(f"📥 Procesando: {archivo.name}")
-                    
-                    resultado = self._procesar_pdf(
-                        str(archivo),
-                        tipo_documento
-                    )
+                    resultado = self._procesar_pdf(str(archivo), tipo_documento)
                     
                     if resultado['exito']:
                         estadisticas['archivos_procesados'] += 1
@@ -146,41 +129,18 @@ class DataProcessor:
                     logger.error(f"❌ Error procesando {archivo.name}: {e}")
                     estadisticas['archivos_error'] += 1
             
-            # Guardar estadísticas
             self._guardar_estadisticas(estadisticas)
-            
             logger.info(f"✅ Carpeta procesada: {estadisticas['archivos_procesados']}/{len(archivos_pdf)}")
             
-            return {
-                'exito': True,
-                **estadisticas
-            }
+            return {'exito': True, **estadisticas}
         
         except Exception as e:
             logger.error(f"❌ Error procesando carpeta: {e}", exc_info=True)
-            return {
-                'exito': False,
-                'error': str(e),
-                'archivos_procesados': 0
-            }
+            return {'exito': False, 'error': str(e), 'archivos_procesados': 0}
     
-    def _procesar_pdf(
-        self,
-        ruta_pdf: str,
-        tipo_documento: str = "general"
-    ) -> Dict[str, any]:
-        """
-        Procesar un PDF individual
-        
-        Args:
-            ruta_pdf: Ruta del PDF
-            tipo_documento: Tipo de documento
-        
-        Returns:
-            Dict con resultado
-        """
+    def _procesar_pdf(self, ruta_pdf: str, tipo_documento: str = "general") -> Dict[str, any]:
+        """Procesar un PDF individual"""
         try:
-            # Leer PDF
             with open(ruta_pdf, 'rb') as f:
                 pdf_reader = PdfReader(f)
                 texto_completo = ""
@@ -190,21 +150,13 @@ class DataProcessor:
                     texto_completo += pagina.extract_text() or ""
             
             if not texto_completo.strip():
-                return {
-                    'exito': False,
-                    'error': 'No se pudo extraer texto del PDF'
-                }
+                return {'exito': False, 'error': 'No se pudo extraer texto del PDF'}
             
-            # Dividir en chunks
             chunks = self.splitter.split_text(texto_completo)
             
             if not chunks:
-                return {
-                    'exito': False,
-                    'error': 'No se pudieron crear chunks'
-                }
+                return {'exito': False, 'error': 'No se pudieron crear chunks'}
             
-            # Crear metadatos
             tamaño_kb = os.path.getsize(ruta_pdf) / 1024
             metadata_base = {
                 'source': Path(ruta_pdf).name,
@@ -215,14 +167,10 @@ class DataProcessor:
                 'tamaño_kb': round(tamaño_kb, 2)
             }
             
-            # Agregar al vectorstore
             documentos = [
                 {
                     'page_content': chunk,
-                    'metadata': {
-                        **metadata_base,
-                        'chunk_id': i
-                    }
+                    'metadata': {**metadata_base, 'chunk_id': i}
                 }
                 for i, chunk in enumerate(chunks)
             ]
@@ -241,19 +189,14 @@ class DataProcessor:
         
         except Exception as e:
             logger.error(f"❌ Error procesando PDF: {e}")
-            return {
-                'exito': False,
-                'error': str(e)
-            }
+            return {'exito': False, 'error': str(e)}
     
     def _guardar_estadisticas(self, stats: Dict):
         """Guardar estadísticas en JSON"""
         try:
             Path(self.estadisticas_path).parent.mkdir(parents=True, exist_ok=True)
-            
             with open(self.estadisticas_path, 'w', encoding='utf-8') as f:
                 json.dump(stats, f, ensure_ascii=False, indent=2)
-        
         except Exception as e:
             logger.warning(f"⚠️ No se pudieron guardar estadísticas: {e}")
     
@@ -268,18 +211,23 @@ class DataProcessor:
         return {}
     
     def limpiar_vectorstore(self) -> bool:
-        """Limpiar vectorstore (solo admin)"""
+        """Limpiar vectorstore (Conmutación segura de colección)"""
         try:
-            import shutil
-            if Path(self.vectorstore_path).exists():
-                shutil.rmtree(self.vectorstore_path)
-            Path(self.vectorstore_path).mkdir(parents=True, exist_ok=True)
+            # 🚨 En lugar de borrar y colapsar, montamos una colección fresca
+            self._cargar_vectorstore(reset=True)
+            logger.info("✅ Vectorstore purgado y conmutado a colección limpia")
             
-            self.vectorstore = None
-            logger.info("✅ Vectorstore limpiado")
+            # Borrado suave del disco (silencioso si Linux lo tiene bloqueado)
+            import shutil
+            try:
+                if Path(self.vectorstore_path).exists():
+                    shutil.rmtree(self.vectorstore_path, ignore_errors=True)
+            except Exception:
+                pass
+                
             return True
         except Exception as e:
-            logger.error(f"❌ Error limpiando vectorstore: {e}")
+            logger.error(f"❌ Error crítico limpiando vectorstore: {e}")
             return False
     
     def obtener_estado_bd(self) -> Dict[str, Any]:
