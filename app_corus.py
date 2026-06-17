@@ -778,30 +778,39 @@ def mostrar_chat():
             border-top: none !important;
             box-shadow: none !important;
         }
+        /* ===== Barra de busqueda (estilo ChatGPT, pulida) ===== */
         [data-testid="stChatInput"] {
-            background: #2f2f2f !important;
-            border: 1px solid #565869 !important;
-            border-radius: 28px !important;
-            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
-            padding: 4px 8px !important;
+            background: #343541 !important;
+            border: 1px solid #4d4f5c !important;
+            border-radius: 26px !important;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+            padding: 6px 10px !important;
             transition: border-color .2s ease, box-shadow .2s ease;
         }
         [data-testid="stChatInput"]:focus-within {
-            border-color: #667eea !important;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.28),
-                        0 6px 22px rgba(0, 0, 0, 0.5) !important;
+            border-color: #8b8ef0 !important;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.32),
+                        0 8px 28px rgba(0, 0, 0, 0.55) !important;
         }
-        [data-testid="stChatInput"] > div { background: transparent !important; }
+        /* Quitar bordes/fondos blancos internos de baseweb */
+        [data-testid="stChatInput"] > div,
+        [data-testid="stChatInput"] div[data-baseweb="textarea"],
+        [data-testid="stChatInput"] div[data-baseweb="base-input"] {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
         /* Boton de enviar circular con degradado */
         [data-testid="stChatInput"] button {
             background: linear-gradient(135deg, #667eea, #764ba2) !important;
             border-radius: 50% !important;
             border: none !important;
             color: #ffffff !important;
+            box-shadow: 0 2px 10px rgba(102, 126, 234, 0.5);
             transition: filter .2s ease, transform .1s ease;
         }
-        [data-testid="stChatInput"] button:hover { filter: brightness(1.12); }
-        [data-testid="stChatInput"] button:active { transform: scale(0.94); }
+        [data-testid="stChatInput"] button:hover { filter: brightness(1.15); }
+        [data-testid="stChatInput"] button:active { transform: scale(0.92); }
         [data-testid="stChatInput"] button svg {
             fill: #ffffff !important;
             color: #ffffff !important;
@@ -810,13 +819,15 @@ def mostrar_chat():
             background: transparent !important;
             color: #ffffff !important;
             -webkit-text-fill-color: #ffffff !important;
-            caret-color: #ffffff !important;
+            caret-color: #8b8ef0 !important;
             opacity: 1 !important;
-            font-size: 1rem !important;
+            font-size: 1.02rem !important;
+            line-height: 1.5 !important;
+            padding: 6px 8px !important;
         }
         [data-testid="stChatInput"] textarea::placeholder {
-            color: #8e8ea0 !important;
-            -webkit-text-fill-color: #8e8ea0 !important;
+            color: #9a9aa8 !important;
+            -webkit-text-fill-color: #9a9aa8 !important;
         }
 
         /* Expander de fuentes */
