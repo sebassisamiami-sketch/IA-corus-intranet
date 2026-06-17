@@ -17,6 +17,18 @@ try:
 except Exception:
     _page_icon = "🤖"
 
+import base64
+
+def _logo_data_uri():
+    """Devuelve el logo como data URI para incrustarlo en HTML (bienvenida)."""
+    try:
+        if LOGO_PATH.exists():
+            data = base64.b64encode(LOGO_PATH.read_bytes()).decode()
+            return f"data:image/png;base64,{data}"
+    except Exception:
+        pass
+    return ""
+
 # ===== CONFIGURACIÓN INICIAL (DEBE SER LO PRIMERO) =====
 st.set_page_config(
     page_title="Corus Intranet Engine v2.0",
@@ -161,6 +173,15 @@ def registrar_acceso(usuario: str, rol: str, accion: str = "LOGIN"):
 # ===== CSS PERSONALIZADO =====
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    /* Tipografía profesional en toda la app */
+    html, body, [class*="css"], .stApp,
+    section.main, section[data-testid="stSidebar"],
+    input, textarea, button, select {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    }
+
     /* Colores corporativos */
     :root {
         --primary: #667eea;
@@ -204,9 +225,36 @@ st.markdown("""
         box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
     }
     
-    /* Sidebar */
+    /* Sidebar estilo ChatGPT (oscuro) */
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #f5f7fa 0%, #e9ecef 100%);
+        background: #171717 !important;
+        border-right: 1px solid #2a2a2a;
+    }
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3,
+    section[data-testid="stSidebar"] h4,
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] * {
+        color: #ececf1 !important;
+    }
+    section[data-testid="stSidebar"] hr { border-color: #2a2a2a !important; }
+    /* Selectbox del sidebar en oscuro */
+    section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+        background: #2a2a2a !important;
+        color: #ececf1 !important;
+        border-color: #3a3a3a !important;
+    }
+    /* Botones del sidebar en oscuro */
+    section[data-testid="stSidebar"] .stButton button {
+        background: #2a2a2a !important;
+        color: #ececf1 !important;
+        border: 1px solid #3a3a3a !important;
+    }
+    section[data-testid="stSidebar"] .stButton button:hover {
+        background: #343541 !important;
     }
     
     /* Cards */
@@ -637,7 +685,7 @@ def pantalla_principal():
         mostrar_estadisticas()
 
 def mostrar_chat():
-    """Interfaz de chat estilo ChatGPT (oscuro y minimalista)"""
+    """Interfaz de chat estilo ChatGPT (oscuro, minimalista y fiel)"""
 
     # ===== TEMA OSCURO ESTILO CHATGPT =====
     st.markdown("""
@@ -645,11 +693,11 @@ def mostrar_chat():
         [data-testid="stAppViewContainer"], section.main {
             background-color: #212121 !important;
         }
-        /* Columna de conversacion centrada */
+        /* Columna de conversacion centrada y estrecha */
         section.main .block-container {
-            max-width: 820px;
-            padding-top: 1.2rem;
-            padding-bottom: 7rem;
+            max-width: 800px;
+            padding-top: 1.5rem;
+            padding-bottom: 9rem;
         }
         section.main h1, section.main h2, section.main h3, section.main h4 {
             color: #ececf1 !important;
@@ -657,22 +705,46 @@ def mostrar_chat():
         section.main .stMarkdown p, section.main .stMarkdown li,
         section.main .stMarkdown strong {
             color: #ececf1 !important;
+            font-size: 1rem;
+            line-height: 1.75;
         }
         section.main [data-testid="stCaptionContainer"] * { color: #9a9a9a !important; }
+
+        /* Pantalla de bienvenida centrada */
+        .welcome-screen { text-align: center; margin-top: 16vh; }
+        .welcome-logo { width: 64px; height: auto; margin-bottom: 18px; }
+        .welcome-title {
+            color: #ececf1; font-weight: 600; font-size: 2rem;
+            margin: 0; letter-spacing: -0.5px;
+        }
+        .welcome-sub { color: #9a9a9a; font-size: .95rem; margin-top: 8px; }
+
         /* Mensajes estilo ChatGPT */
         [data-testid="stChatMessage"] {
             background: transparent !important;
-            padding: 8px 0 !important;
+            padding: 10px 0 !important;
         }
         [data-testid="stChatMessageContent"] { color: #ececf1 !important; }
-        /* Caja de entrada fija abajo estilo ChatGPT */
+
+        /* Barra inferior y caja de entrada estilo ChatGPT */
+        [data-testid="stBottom"], [data-testid="stBottom"] > div {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
         [data-testid="stChatInput"] {
             background: #2f2f2f !important;
-            border: 1px solid #4d4d4d !important;
+            border: 1px solid #565869 !important;
             border-radius: 26px !important;
+            box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
         }
-        [data-testid="stChatInput"] textarea { color: #ececf1 !important; }
-        [data-testid="stBottom"] > div { background: transparent !important; }
+        [data-testid="stChatInput"] textarea {
+            background: transparent !important;
+            color: #ececf1 !important;
+            font-size: 1rem !important;
+        }
+        [data-testid="stChatInput"] textarea::placeholder { color: #8e8ea0 !important; }
+
         /* Expander de fuentes */
         section.main [data-testid="stExpander"] {
             border: 1px solid #3a3a3a !important;
@@ -684,39 +756,39 @@ def mostrar_chat():
     </style>
     """, unsafe_allow_html=True)
 
-    # Encabezado compacto
-    col_logo, col_titulo = st.columns([0.08, 0.92])
-    with col_logo:
-        if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), width=52)
-    with col_titulo:
-        st.markdown("## Chat Corporativo IA")
-        st.caption("Consulta documentos de parafiscales y pensiones con IA")
-
     # Leer el historial vivo desde el chat_processor
     historial_actual = []
     if st.session_state.chat_processor:
         historial_actual = st.session_state.chat_processor.historial_local
 
     if not historial_actual:
-        st.caption("Escribe una pregunta abajo para comenzar la conversacion.")
+        # Pantalla de bienvenida centrada estilo ChatGPT
+        logo_uri = _logo_data_uri()
+        logo_html = f'<img src="{logo_uri}" class="welcome-logo"/>' if logo_uri else ''
+        st.markdown(f"""
+<div class="welcome-screen">
+{logo_html}
+<h1 class="welcome-title">¿En qué puedo ayudarte?</h1>
+<p class="welcome-sub">Consulta documentos de parafiscales y pensiones con IA</p>
+</div>
+""", unsafe_allow_html=True)
+    else:
+        # Conversacion en orden cronologico (estilo ChatGPT)
+        for msg in historial_actual[-30:]:
+            with st.chat_message("user", avatar="🧑"):
+                st.markdown(str(msg.get('mensaje_original', '')))
 
-    # Conversacion en orden cronologico (estilo ChatGPT)
-    for msg in historial_actual[-30:]:
-        with st.chat_message("user", avatar="🧑"):
-            st.markdown(str(msg.get('mensaje_original', '')))
+            with st.chat_message("assistant", avatar="🤖"):
+                if msg.get('exitoso'):
+                    st.markdown(msg.get('respuesta', ''))
 
-        with st.chat_message("assistant", avatar="🤖"):
-            if msg.get('exitoso'):
-                st.markdown(msg.get('respuesta', ''))
-
-                # Fuentes estilo ventana de comandos / terminal
-                if msg.get('sources'):
-                    with st.expander(f"📚 Fuentes ({len(msg['sources'])})"):
-                        for i, source in enumerate(msg['sources'], 1):
-                            archivo = html.escape(str(source.get('archivo', 'documento')))
-                            pagina = source.get('metadata', {}).get('page', 'N/A')
-                            st.markdown(f"""
+                    # Fuentes estilo ventana de comandos / terminal
+                    if msg.get('sources'):
+                        with st.expander(f"📚 Fuentes ({len(msg['sources'])})"):
+                            for i, source in enumerate(msg['sources'], 1):
+                                archivo = html.escape(str(source.get('archivo', 'documento')))
+                                pagina = source.get('metadata', {}).get('page', 'N/A')
+                                st.markdown(f"""
 <div class="terminal-bar">
 <span class="dot red"></span>
 <span class="dot yellow"></span>
@@ -724,9 +796,9 @@ def mostrar_chat():
 <span class="title">fuente {i} &mdash; {archivo} &middot; pag. {pagina}</span>
 </div>
 """, unsafe_allow_html=True)
-                            st.code(source['contenido'][:400], language="text")
-            else:
-                st.error(msg.get('respuesta', 'Error'))
+                                st.code(source['contenido'][:400], language="text")
+                else:
+                    st.error(msg.get('respuesta', 'Error'))
 
     # Entrada fija abajo (estilo ChatGPT)
     user_input = st.chat_input("Escribe tu pregunta...")
