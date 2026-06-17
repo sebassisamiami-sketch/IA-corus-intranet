@@ -69,7 +69,11 @@ class ChatProcessor:
             """
         }
         
-        return prompts_rol.get(self.rol, "") + f"\n\nPregunta: {mensaje}"
+        # Enviamos la pregunta LIMPIA al motor para que la búsqueda en los
+        # documentos sea precisa. El rol y el tono se controlan en el prompt
+        # del motor (ia_motor.py), no aquí.
+        _ = prompts_rol  # se mantiene por compatibilidad
+        return mensaje
     
     def procesar_mensaje(self, mensaje: str, contexto: Dict = None) -> Dict[str, Any]:
         """Procesar mensaje del usuario y gestionar salidas tempranas"""

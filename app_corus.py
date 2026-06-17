@@ -738,9 +738,14 @@ def mostrar_chat():
         [data-testid="stChatMessage"] * { color: #ececf1 !important; }
 
         /* Barra inferior y caja de entrada estilo ChatGPT */
+        [data-testid="stChatFloatingInputContainer"],
+        div[class*="stChatFloatingInputContainer"],
+        [data-testid="stBottom"],
         [data-testid="stBottom"] > div,
         [data-testid="stBottomBlockContainer"] {
-            background: #212121 !important;
+            background-color: #212121 !important;
+            border-top: none !important;
+            box-shadow: none !important;
         }
         [data-testid="stChatInput"] {
             background: #2f2f2f !important;
