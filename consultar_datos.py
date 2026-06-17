@@ -1,3 +1,7 @@
+# ARCHIVO NO USADO EN PRODUCCIÓN - Solo para debugging local
+# Comentado para evitar dependencias de sentence-transformers
+
+"""
 import os
 import warnings
 from sentence_transformers import SentenceTransformer
