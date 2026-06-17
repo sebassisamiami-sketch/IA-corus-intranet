@@ -626,18 +626,49 @@ def pantalla_login():
             section.main .stTextInput label,
             section.main .stSelectbox label {
                 color: #1b1b1b !important; font-weight: 600; font-size: .85rem;
+                letter-spacing: .2px; margin-bottom: 6px;
             }
-            /* Inputs estilo Microsoft (borde recto) */
+            /* Inputs limpios y profesionales */
             section.main .stTextInput input,
             section.main div[data-baseweb="select"] > div {
                 background: #ffffff !important;
                 color: #1b1b1b !important;
-                border: 1px solid #8a8886 !important;
-                border-radius: 0 !important;
+                border: 1px solid #c8c6c4 !important;
+                border-radius: 6px !important;
+                padding: 12px 14px !important;
+                font-size: .95rem !important;
+                font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif !important;
+                box-shadow: none !important;
+                transition: border-color .15s ease, box-shadow .15s ease;
+            }
+            /* Texto guía (placeholder) más oscuro y con mejor tipografía */
+            section.main .stTextInput input::placeholder {
+                color: #5b5b5b !important;
+                -webkit-text-fill-color: #5b5b5b !important;
+                opacity: 1 !important;
+                font-weight: 400 !important;
+                font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif !important;
+                letter-spacing: .1px;
+            }
+            /* Hover y foco sutiles (profesional) */
+            section.main .stTextInput input:hover {
+                border-color: #8a8886 !important;
             }
             section.main .stTextInput input:focus {
                 border-color: #0067b8 !important;
+                box-shadow: 0 0 0 2px rgba(0, 103, 184, 0.18) !important;
+            }
+            /* Caja del campo (contenedor) sin borde doble */
+            section.main .stTextInput div[data-baseweb="input"] {
+                background: transparent !important;
+                border: none !important;
                 box-shadow: none !important;
+            }
+            /* Botón mostrar/ocultar contraseña: limpio (sin recuadro negro) */
+            section.main .stTextInput button {
+                background: transparent !important;
+                border: none !important;
+                color: #605e5c !important;
             }
             /* Botón azul Microsoft (incluye el botón del formulario de login) */
             section.main .stButton button[kind="primary"],
@@ -645,8 +676,9 @@ def pantalla_login():
                 background: #0067b8 !important;
                 color: #ffffff !important;
                 border: none !important;
-                border-radius: 0 !important;
+                border-radius: 6px !important;
                 font-weight: 600;
+                padding: 11px 16px !important;
             }
             section.main .stButton button[kind="primary"]:hover,
             section.main [data-testid="stFormSubmitButton"] button:hover {
