@@ -314,6 +314,24 @@ st.markdown("""
     #MainMenu { display: none !important; }
     footer { display: none !important; }
 
+    /* ===== Ocultar badge/insignia de Streamlit Community Cloud =====
+       (el "Hosted with Streamlit" y el perfil "hosted by <tu cuenta>" que
+       aparece para que se vea más profesional y sin marca personal). */
+    [data-testid="stToolbarActions"] { display: none !important; }
+    [data-testid="manage-app-button"] { display: none !important; }
+    [data-testid="stAppDeployButton"] { display: none !important; }
+    [class*="viewerBadge"] { display: none !important; }
+    [class*="profileContainer"] { display: none !important; }
+    a[href*="streamlit.io/cloud"] { display: none !important; }
+    a[href*="share.streamlit.io"] { display: none !important; }
+    a[href*="streamlit.app"][target="_blank"] { display: none !important; }
+    .viewerBadge_container__r5tak,
+    .viewerBadge_link__qRIco,
+    ._profileContainer_gzau3_53,
+    ._container_gzau3_1,
+    ._link_gzau3_10,
+    ._profilePreview_gzau3_63 { display: none !important; }
+
     /* Colores corporativos */
     :root {
         --primary: #667eea;
