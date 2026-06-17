@@ -164,6 +164,12 @@ class CorusIntranetEngine:
                 prompt_template = """Eres un Consultor y Analista de Procesos Senior en Corus.
 Responde la consulta del usuario utilizando la documentación interna que aparece abajo.
 
+Contexto operativo (úsalo SOLO para ENTENDER la consulta, NO para inventar pasos):
+- El equipo trabaja con WetMethods y flujos de BPM (Business Process Management).
+- Los tickets/casos se buscan y validan en los flujos de BPM y se RESUELVEN en Service Manager.
+- Un caso suele implicar: identificar el ticket, validar la etapa del flujo de BPM, ejecutar acciones y resolverlo en Service Manager.
+Importante: la RESPUESTA debe basarse EXCLUSIVAMENTE en la documentación de abajo; este contexto es solo para interpretar mejor la pregunta.
+
 Instrucciones:
 - Construye una respuesta clara, completa y bien estructurada (pasos numerados, negritas y, si aparecen en el texto, las consultas SQL exactas).
 - Usa la información de los documentos aunque sea parcial; siempre ofrece la mejor respuesta posible con lo que haya disponible. NO te disculpes ni digas que no encontraste el procedimiento.
@@ -288,14 +294,19 @@ Respuesta:"""
 
             score_elegido = _title_score(fuente_principal) if fuente_principal else 0
             n_palabras = len(q_norm.split())
-            es_seguimiento = es_followup or (n_palabras <= 4 and score_elegido == 0)
+            es_followup_o_vago = es_followup or (n_palabras <= 4 and score_elegido == 0)
 
-            if ultima_fuente and es_seguimiento:
-                # Pregunta de seguimiento -> mantener el MISMO caso (no saltar)
-                logger.info(f"↪️ Seguimiento: mantengo el caso anterior ({ultima_fuente})")
+            # CONTINUIDAD FUERTE: si ya hay un caso activo, NO cambiar de caso a menos
+            # que el usuario nombre CLARAMENTE otro caso (coincidencia de título >= 2).
+            # Así, las preguntas específicas/seguimiento se quedan en el caso actual.
+            quedarse = bool(ultima_fuente) and (es_followup_o_vago or score_elegido < 2)
+
+            if quedarse:
+                if fuente_principal != ultima_fuente:
+                    logger.info(f"↪️ Continuidad: mantengo el caso anterior ({ultima_fuente})")
                 fuente_principal = ultima_fuente
             else:
-                # Guarda de relevancia solo para preguntas NUEVAS
+                # Caso nuevo o primera consulta -> validar relevancia
                 if not docs or (best_score is not None and best_score > 0.55):
                     self.estadisticas['queries_exitosas'] += 1
                     return {
