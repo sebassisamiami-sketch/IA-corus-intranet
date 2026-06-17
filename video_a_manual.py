@@ -29,12 +29,14 @@ MAX_BYTES = 24 * 1024 * 1024  # límite práctico de Whisper (25MB)
 DOMAIN_CONTEXT = (
     "CONTEXTO DEL NEGOCIO (úsalo para interpretar el video, no para inventar):\n"
     "- El equipo trabaja con WetMethods y procesos de BPM (Business Process Management).\n"
-    "- Los 'tickets' o 'casos' se gestionan dentro de los flujos de BPM: se BUSCAN, se VALIDAN "
-    "(la etapa/flujo correcto) y se CIERRAN en el sistema.\n"
+    "- Los 'tickets' o 'casos' se RESUELVEN en Service Manager.\n"
+    "- Los casos se gestionan dentro de los flujos de BPM: se BUSCAN, se VALIDAN "
+    "(la etapa/flujo correcto) y se CIERRAN/RESUELVEN en Service Manager.\n"
     "- Un caso típico implica: identificar el ticket, buscarlo/abrirlo, validar la etapa del flujo "
-    "de BPM, ejecutar acciones (consultas, cambios, validaciones) y cerrar el caso.\n"
+    "de BPM, ejecutar acciones (consultas, cambios, validaciones) y resolver/cerrar el caso en Service Manager.\n"
     "- Presta especial atención a: el NOMBRE del caso/ticket, la ETAPA o FLUJO de BPM, cómo se "
-    "BUSCA/abre el ticket, QUÉ se valida, qué DATOS o CONSULTAS se usan, y cómo se CIERRA el caso."
+    "BUSCA/abre el ticket, QUÉ se valida, qué DATOS o CONSULTAS se usan, y cómo se RESUELVE/CIERRA "
+    "el caso en Service Manager."
 )
 
 
