@@ -19,3 +19,7 @@ pypdf==3.17.0
 # Data
 pandas==2.0.0
 tiktoken==0.5.1
+
+
+# Seguridad - hash de contraseñas
+bcrypt
