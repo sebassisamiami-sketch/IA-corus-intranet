@@ -1,76 +1,196 @@
-# app_corus.py - CorusIntranetEngine v2.0 COMPLETA
+# app_corus.py - CorusIntranetEngine v2.0 OPTIMIZADO
 """
 CorusIntranetEngine v2.0 - Sistema IA Corporativo
-Con Panel Admin completo, gestión de usuarios y roles
+Optimizado para Streamlit Cloud
 """
 
 import streamlit as st
+from pathlib import Path
+
+# ===== LOGO DE LA PÁGINA =====
+# Cargamos logo_corus2.png como ícono de la página (pestaña del navegador).
+# Si por alguna razón no se puede cargar, usamos el emoji como respaldo.
+LOGO_PATH = Path(__file__).parent / "logo_corus2.png"
+try:
+    from PIL import Image
+    _page_icon = Image.open(LOGO_PATH) if LOGO_PATH.exists() else "🤖"
+except Exception:
+    _page_icon = "🤖"
+
+import base64
+
+def _logo_data_uri():
+    """Devuelve el logo como data URI para incrustarlo en HTML (bienvenida)."""
+    try:
+        if LOGO_PATH.exists():
+            data = base64.b64encode(LOGO_PATH.read_bytes()).decode()
+            return f"data:image/png;base64,{data}"
+    except Exception:
+        pass
+    return ""
+
+# ===== CONFIGURACIÓN INICIAL (DEBE SER LO PRIMERO) =====
+st.set_page_config(
+    page_title="Corus Intranet Engine v2.0",
+    page_icon=_page_icon,
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import logging
 import os
 import json
 import csv
+import html
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
-from dotenv import load_dotenv
 
-# ===== CARGAR ENV =====
-load_dotenv()
-
-# ===== CREAR DIRECTORIOS =====
-for directorio in ["data/pdfs", "data/db", "data/sessions", "logs", "parafiscales", "pensiones"]:
-    Path(directorio).mkdir(parents=True, exist_ok=True)
-
-# ===== CONFIGURAR LOGGING =====
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/app.log'),
-        logging.StreamHandler()
+# ===== FUNCIONES DE INICIALIZACIÓN =====
+@st.cache_resource
+def inicializar_sistema():
+    """Inicializar sistema una sola vez"""
+    from dotenv import load_dotenv
+    
+    # Cargar variables de entorno
+    load_dotenv()
+    
+    # Verificar API Key
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        st.error("❌ OPENAI_API_KEY no configurada")
+        st.info("Por favor, configura tu API key en Streamlit Cloud → Settings → Secrets")
+        st.stop()
+    
+    # Crear directorios necesarios
+    directorios = [
+        "data/pdfs", "data/db", "data/sessions", 
+        "logs", "Manual Paraficales", "Manual Pensiones"
     ]
-)
-logger = logging.getLogger(__name__)
+    
+    for directorio in directorios:
+        Path(directorio).mkdir(parents=True, exist_ok=True)
+    
+    # Configurar logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('logs/app.log'),
+            logging.StreamHandler()
+        ]
+    )
+    
+    logger = logging.getLogger(__name__)
+    logger.info("✅ Sistema inicializado")
+    
+    return logger
 
-# ===== IMPORTS SEGUROS =====
-try:
-    from ia_motor import obtener_motor
-    logger.info("✅ ia_motor OK")
-except Exception as e:
-    logger.error(f"❌ Error: {e}")
-    exit(1)
+# Inicializar sistema
+logger = inicializar_sistema()
 
-try:
-    from chat_procesos import ChatProcessor
-    logger.info("✅ chat_procesos OK")
-except Exception as e:
-    logger.error(f"❌ Error: {e}")
-    exit(1)
+# ===== IMPORTS LAZY (solo cuando sea necesario) =====
+@st.cache_resource
+def cargar_motor_ia():
+    """Cargar motor IA una sola vez"""
+    try:
+        from ia_motor import obtener_motor
+        logger.info("✅ Cargando motor IA...")
+        motor = obtener_motor()
+        _autoindexar_documentos(motor)
+        logger.info("✅ Motor IA listo")
+        return motor
+    except Exception as e:
+        logger.error(f"❌ Error cargando motor: {e}")
+        return None
 
-try:
-    from procesar_datos import DataProcessor
-    logger.info("✅ procesar_datos OK")
-except Exception as e:
-    logger.error(f"❌ Error: {e}")
-    exit(1)
+def _autoindexar_documentos(motor):
+    """Indexa los PDFs del repo automaticamente si el indice esta vacio.
+
+    Streamlit Cloud borra el disco en cada redespliegue, por eso reconstruimos
+    el indice al arrancar para que la IA siempre tenga los documentos.
+    """
+    try:
+        if not motor or not getattr(motor, "vectorstore", None):
+            return
+        try:
+            count = motor.vectorstore._collection.count()
+        except Exception:
+            count = 0
+        if count and count > 0:
+            logger.info(f"📚 Indice ya tiene {count} documentos")
+            return
+        logger.info("📚 Indice vacio: indexando PDFs automaticamente...")
+        from procesar_datos import DataProcessor
+        processor = DataProcessor()
+        total = 0
+        for carpeta, tipo in [("Manual Paraficales", "parafiscales"),
+                              ("Manual Pensiones", "pensiones")]:
+            if Path(carpeta).exists():
+                res = processor.procesar_carpeta(carpeta, tipo)
+                if res.get('exito'):
+                    total += res.get('chunks_creados', 0)
+        logger.info(f"✅ Auto-indexado completado: {total} chunks")
+    except Exception as e:
+        logger.error(f"⚠️ Error auto-indexando: {e}", exc_info=True)
+
+def cargar_chat_processor(usuario, rol):
+    """Cargar chat processor"""
+    try:
+        from chat_procesos import ChatProcessor
+        logger.info(f"✅ Chat processor para {usuario}")
+        return ChatProcessor(usuario, rol)
+    except Exception as e:
+        logger.error(f"❌ Error: {e}")
+        return None
+
+def cargar_data_processor():
+    """Cargar data processor"""
+    try:
+        from procesar_datos import DataProcessor
+        return DataProcessor()
+    except Exception as e:
+        logger.error(f"❌ Error: {e}")
+        return None
+
 
 # ===== USUARIOS Y ROLES ADMINISTRABLES =====
 ARCHIVO_USUARIOS = "data/usuarios.json"
 
 def cargar_usuarios() -> Dict[str, Dict]:
-    """Cargar usuarios desde archivo"""
-    if Path(ARCHIVO_USUARIOS).exists():
-        try:
-            with open(ARCHIVO_USUARIOS, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            pass
-    
-    # Usuarios por defecto
-    return {
+    """Cargar usuarios combinando: por defecto + Secrets (permanentes) + archivo local.
+
+    - Secrets: persisten siempre (recomendado para los compañeros del equipo).
+    - Archivo local (data/usuarios.json): creados en la app, se pierden al redesplegar.
+    """
+    # 1) Usuarios por defecto
+    usuarios = {
         "admin": {"contraseña": "admin123", "rol": "Administrador"},
         "analista": {"contraseña": "analista123", "rol": "Analista"}
     }
+
+    # 2) Usuarios PERMANENTES definidos en Streamlit Secrets ([usuarios.<nombre>])
+    try:
+        secret_users = st.secrets.get("usuarios", None)
+        if secret_users:
+            for nombre, datos in dict(secret_users).items():
+                datos = dict(datos)
+                usuarios[nombre] = {
+                    "contraseña": datos.get("contraseña", datos.get("password", "")),
+                    "rol": datos.get("rol", "Analista")
+                }
+    except Exception:
+        pass
+
+    # 3) Usuarios creados en la app (temporales hasta el próximo redespliegue)
+    if Path(ARCHIVO_USUARIOS).exists():
+        try:
+            with open(ARCHIVO_USUARIOS, 'r', encoding='utf-8') as f:
+                usuarios.update(json.load(f))
+        except Exception:
+            pass
+
+    return usuarios
 
 def guardar_usuarios(usuarios: Dict):
     """Guardar usuarios en archivo"""
@@ -101,17 +221,29 @@ def registrar_acceso(usuario: str, rol: str, accion: str = "LOGIN"):
     except Exception as e:
         logger.error(f"Error registrando acceso: {e}")
 
-# ===== CONFIGURACIÓN STREAMLIT =====
-st.set_page_config(
-    page_title="🤖 Corus Intranet Engine v2.0",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
 # ===== CSS PERSONALIZADO =====
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    /* Tipografía profesional en toda la app */
+    html, body, [class*="css"], .stApp,
+    section.main, section[data-testid="stSidebar"],
+    input, textarea, button, select {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+    }
+
+    /* Ocultar barra/herramientas de Streamlit (Deploy, menu, footer) y franja blanca superior */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        height: 0 !important;
+    }
+    [data-testid="stToolbar"] { display: none !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    [data-testid="stStatusWidget"] { display: none !important; }
+    #MainMenu { display: none !important; }
+    footer { display: none !important; }
+
     /* Colores corporativos */
     :root {
         --primary: #667eea;
@@ -155,9 +287,36 @@ st.markdown("""
         box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
     }
     
-    /* Sidebar */
+    /* Sidebar estilo ChatGPT (oscuro) */
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #f5f7fa 0%, #e9ecef 100%);
+        background: #171717 !important;
+        border-right: 1px solid #2a2a2a;
+    }
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3,
+    section[data-testid="stSidebar"] h4,
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] * {
+        color: #ececf1 !important;
+    }
+    section[data-testid="stSidebar"] hr { border-color: #2a2a2a !important; }
+    /* Selectbox del sidebar en oscuro */
+    section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+        background: #2a2a2a !important;
+        color: #ececf1 !important;
+        border-color: #3a3a3a !important;
+    }
+    /* Botones del sidebar en oscuro */
+    section[data-testid="stSidebar"] .stButton button {
+        background: #2a2a2a !important;
+        color: #ececf1 !important;
+        border: 1px solid #3a3a3a !important;
+    }
+    section[data-testid="stSidebar"] .stButton button:hover {
+        background: #343541 !important;
     }
     
     /* Cards */
@@ -206,6 +365,88 @@ st.markdown("""
     hr {
         margin: 20px 0;
     }
+
+    /* ===== CHAT MODERNO Y MINIMALISTA ===== */
+    .chat-bubble {
+        border-radius: 14px;
+        padding: 14px 18px;
+        margin: 8px 0;
+        line-height: 1.5;
+        animation: fadeIn .25s ease;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    .user-bubble {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #ffffff;
+        margin-left: 18%;
+        box-shadow: 0 4px 14px rgba(102, 126, 234, 0.25);
+    }
+    .ai-bubble {
+        background: #f4f6fb;
+        color: #1f2937;
+        margin-right: 12%;
+        border: 1px solid #e6e9f2;
+    }
+    .bubble-label {
+        font-size: .72rem;
+        font-weight: 700;
+        letter-spacing: .6px;
+        text-transform: uppercase;
+        opacity: .75;
+        margin-bottom: 4px;
+    }
+    .bubble-text { font-size: .95rem; }
+    .chat-time {
+        font-size: .7rem;
+        color: #9ca3af;
+        margin: 2px 0 14px 0;
+    }
+
+    /* ===== FUENTES ESTILO VENTANA DE COMANDOS / TERMINAL ===== */
+    div[data-testid="stCodeBlock"] {
+        background: #0d1117 !important;
+        border-radius: 10px;
+        border: 1px solid #30363d;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+        overflow: hidden;
+    }
+    div[data-testid="stCodeBlock"] pre {
+        background: #0d1117 !important;
+        color: #c9d1d9 !important;
+        padding: 16px !important;
+        font-size: .82rem !important;
+    }
+    div[data-testid="stCodeBlock"] code { color: #c9d1d9 !important; }
+    /* Barra superior tipo ventana con tres "botones" */
+    .terminal-bar {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-bottom: none;
+        border-radius: 10px 10px 0 0;
+        padding: 8px 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: .75rem;
+        color: #8b949e;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .terminal-bar .dot {
+        width: 11px; height: 11px; border-radius: 50%;
+        display: inline-block;
+    }
+    .terminal-bar .red    { background: #ff5f56; }
+    .terminal-bar .yellow { background: #ffbd2e; }
+    .terminal-bar .green  { background: #27c93f; }
+    .terminal-bar .title  { margin-left: 10px; }
+    /* Pega el code block a la barra del terminal */
+    .terminal-bar + div[data-testid="stCodeBlock"] {
+        border-radius: 0 0 10px 10px;
+        margin-top: 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -235,36 +476,91 @@ def pantalla_login():
     
     usuarios = cargar_usuarios()
     
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1, 12, 1])
     
     with col2:
+        # Estilos estilo Microsoft (tarjeta blanca centrada) SOLO para login
         st.markdown("""
-        <div class="login-container">
-        <h1>🤖 Corus Intranet Engine</h1>
-        <p>Sistema IA Corporativo v2.0</p>
-        </div>
+        <style>
+            /* Fondo gris claro estilo Microsoft */
+            [data-testid="stAppViewContainer"] { background: #f2f2f2; }
+            [data-testid="stHeader"] { background: transparent; }
+
+            /* Tarjeta central blanca */
+            section.main .block-container {
+                max-width: 470px;
+                background: #ffffff;
+                padding: 44px 44px 36px 44px;
+                margin-top: 6vh;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+                border-radius: 2px;
+            }
+
+            /* Encabezado */
+            .ms-title {
+                font-size: 1.55rem; font-weight: 600;
+                color: #1b1b1b; margin: 16px 0 6px 0;
+            }
+            .ms-sub { color: #605e5c; font-size: .9rem; margin-bottom: 20px; }
+
+            /* Etiquetas */
+            section.main .stTextInput label,
+            section.main .stSelectbox label {
+                color: #1b1b1b !important; font-weight: 600; font-size: .85rem;
+            }
+            /* Inputs estilo Microsoft (borde recto) */
+            section.main .stTextInput input,
+            section.main div[data-baseweb="select"] > div {
+                background: #ffffff !important;
+                color: #1b1b1b !important;
+                border: 1px solid #8a8886 !important;
+                border-radius: 0 !important;
+            }
+            section.main .stTextInput input:focus {
+                border-color: #0067b8 !important;
+                box-shadow: none !important;
+            }
+            /* Botón azul Microsoft */
+            section.main .stButton button[kind="primary"] {
+                background: #0067b8 !important;
+                color: #ffffff !important;
+                border: none !important;
+                border-radius: 0 !important;
+                font-weight: 600;
+            }
+            section.main .stButton button[kind="primary"]:hover {
+                background: #005da6 !important;
+                transform: none;
+                box-shadow: none;
+            }
+        </style>
         """, unsafe_allow_html=True)
-        
-        st.markdown("---")
+
+        # Logo (estilo Microsoft, arriba a la izquierda)
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), width=108)
+
+        st.markdown('<div class="ms-title">Iniciar sesión</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ms-sub">Usa tu cuenta corporativa de Corus</div>', unsafe_allow_html=True)
         
         # Seleccionar usuario
         usuarios_list = list(usuarios.keys())
         usuario_seleccionado = st.selectbox(
-            "👤 Selecciona un usuario",
+            "Cuenta",
             usuarios_list,
             key="select_usuario_login"
         )
         
         contraseña = st.text_input(
-            "🔑 Contraseña",
+            "Contraseña",
             type="password",
             key="input_password_login"
         )
         
-        col_login, col_info = st.columns([2, 1])
+        col_login = st.container()
         
         with col_login:
-            if st.button("🔓 Iniciar Sesión", use_container_width=True, type="primary"):
+            if st.button("Iniciar sesión", use_container_width=True, type="primary"):
                 
                 if not contraseña:
                     st.error("❌ Ingresa la contraseña")
@@ -281,22 +577,31 @@ def pantalla_login():
                     try:
                         logger.info(f"Iniciando sesión para {usuario_seleccionado}")
                         
-                        # Obtener motor IA
-                        motor_ia = obtener_motor()
-                        estado_motor = motor_ia.obtener_estado()
+                        # Obtener motor IA (cached)
+                        motor_ia = cargar_motor_ia()
                         
+                        if not motor_ia:
+                            st.error("❌ Motor IA no disponible")
+                            st.info("Verifica que OPENAI_API_KEY esté configurada")
+                            return
+                        
+                        estado_motor = motor_ia.obtener_estado()
                         logger.info(f"Estado motor: {estado_motor['estado']}")
                         
                         if estado_motor['estado'] != 'listo':
                             st.error(f"❌ Motor IA no disponible: {estado_motor['estado']}")
-                            st.info("Contacta al administrador")
                             return
                         
                         # Inicializar chat processor
-                        chat_processor = ChatProcessor(
+                        chat_processor = cargar_chat_processor(
                             usuario_seleccionado,
                             usuario_data['rol']
                         )
+                        
+                        if not chat_processor:
+                            st.error("❌ Error inicializando chat")
+                            return
+                        
                         chat_processor._cargar_memoria_usuario()
                         
                         # Actualizar sesión
@@ -319,39 +624,13 @@ def pantalla_login():
                         logger.error(f"❌ Error: {e}", exc_info=True)
                         st.error(f"❌ Error iniciando sistema:\n{str(e)}")
         
-        with col_info:
-            if st.button("ℹ️", help="Ver credenciales de prueba"):
-                st.info("""
-                **Usuarios:**
-                - admin / Pipeline**2038******
-                - analista / FarmeoAura*26*****
-                """)
-        
-        st.markdown("---")
-        
-        # Sección admin (crear usuarios)
-        with st.expander("⚙️ Crear nuevo usuario (solo demo)"):
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                nuevo_usuario = st.text_input("Nuevo usuario", key="new_user_input")
-                nueva_contraseña = st.text_input("Contraseña", type="password", key="new_pass_input")
-                nuevo_rol = st.selectbox("Rol", ["Analista", "Administrador"], key="new_role_select")
-            
-            with col2:
-                if st.button("➕ Crear", key="btn_crear_usuario"):
-                    if not nuevo_usuario or not nueva_contraseña:
-                        st.error("❌ Completa todos los campos")
-                    elif nuevo_usuario in usuarios:
-                        st.error("❌ Usuario ya existe")
-                    else:
-                        usuarios[nuevo_usuario] = {
-                            "contraseña": nueva_contraseña,
-                            "rol": nuevo_rol
-                        }
-                        guardar_usuarios(usuarios)
-                        st.success(f"✅ Usuario '{nuevo_usuario}' creado")
-                        st.rerun()
+        # Nota discreta de acceso (la gestión de usuarios es solo para admin)
+        st.markdown(
+            "<p style='text-align:center; color:#64748b; font-size:.78rem; "
+            "margin-top:22px;'>Acceso restringido &middot; La gestión de usuarios "
+            "está disponible para administradores</p>",
+            unsafe_allow_html=True
+        )
 
 # ===== PANTALLA PRINCIPAL =====
 def pantalla_principal():
@@ -359,6 +638,10 @@ def pantalla_principal():
     
     # Sidebar expandible con tema profesional
     with st.sidebar:
+        # Logo de la empresa
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), use_column_width=True)
+
         # Header del sidebar
         st.markdown(f"""
         <div style="
@@ -395,6 +678,7 @@ def pantalla_principal():
             admin_opcion = st.selectbox(
                 "Herramientas Admin",
                 [
+                    "— Inicio —",
                     "Gestionar Usuarios",
                     "Procesar PDFs",
                     "Estado de BD",
@@ -440,13 +724,13 @@ def pantalla_principal():
         st.caption(f"⏱️ Inicio: {st.session_state.inicio_sesion.strftime('%H:%M:%S')}")
     
     # CONTENIDO PRINCIPAL
-    if opcion == "💬 Chat":
-        mostrar_chat()
-    elif opcion == "📊 Estadísticas":
-        mostrar_estadisticas()
-    
-    # Panel Admin
-    if st.session_state.rol == "Administrador" and admin_opcion:
+    mostrar_admin = (
+        st.session_state.rol == "Administrador"
+        and admin_opcion
+        and admin_opcion != "— Inicio —"
+    )
+
+    if mostrar_admin:
         if admin_opcion == "Gestionar Usuarios":
             mostrar_admin_usuarios()
         elif admin_opcion == "Procesar PDFs":
@@ -457,93 +741,203 @@ def pantalla_principal():
             mostrar_admin_accesos()
         elif admin_opcion == "Estadísticas IA":
             mostrar_admin_estadisticas_ia()
+    elif opcion == "💬 Chat":
+        mostrar_chat()
+    elif opcion == "📊 Estadísticas":
+        mostrar_estadisticas()
 
 def mostrar_chat():
-    """Mostrar interfaz de chat"""
-    
-    st.markdown("# 💬 Chat Corporativo IA")
-    st.markdown("Consulta documentos de **parafiscales** y **pensiones** con IA")
-    
-    # Input con Enter
-    with st.form("form_chat", clear_on_submit=True):
-        col_input, col_button = st.columns([0.85, 0.15])
-        
-        with col_input:
-            user_input = st.text_area(
-                "Tu pregunta:",
-                placeholder="Ej: ¿Cuáles son las políticas de pensión?",
-                height=80,
-                label_visibility="collapsed",
-                key="input_chat"
-            )
-        
-        with col_button:
-            submit = st.form_submit_button("📤 Enviar", use_container_width=True)
-        
-        if submit and user_input.strip():
-            logger.info(f"📨 Mensaje de {st.session_state.usuario}: {user_input[:50]}")
-            
-            with st.spinner("⏳ Procesando pregunta..."):
+    """Interfaz de chat estilo ChatGPT (oscuro, minimalista y fiel)"""
+
+    # ===== TEMA OSCURO ESTILO CHATGPT =====
+    st.markdown("""
+    <style>
+        [data-testid="stAppViewContainer"], section.main {
+            background-color: #212121 !important;
+        }
+        /* Columna de conversacion centrada y estrecha */
+        section.main .block-container {
+            max-width: 900px;
+            padding-top: 1.5rem;
+            padding-bottom: 9rem;
+        }
+        section.main h1, section.main h2, section.main h3, section.main h4 {
+            color: #ececf1 !important;
+        }
+        section.main .stMarkdown p, section.main .stMarkdown li,
+        section.main .stMarkdown strong {
+            color: #ececf1 !important;
+            font-size: 1rem;
+            line-height: 1.75;
+        }
+        section.main [data-testid="stCaptionContainer"] * { color: #9a9a9a !important; }
+
+        /* Pantalla de bienvenida centrada */
+        .welcome-screen { text-align: center; margin-top: 16vh; }
+        .welcome-logo { width: 64px; height: auto; margin-bottom: 18px; }
+        .welcome-title {
+            color: #ececf1; font-weight: 600; font-size: 2rem;
+            margin: 0; letter-spacing: -0.5px;
+        }
+        .welcome-sub { color: #9a9a9a; font-size: .95rem; margin-top: 8px; }
+
+        /* Mensajes estilo ChatGPT */
+        [data-testid="stChatMessage"] {
+            background: transparent !important;
+            padding: 10px 0 !important;
+        }
+        [data-testid="stChatMessage"] * { color: #ececf1 !important; }
+
+        /* Barra inferior y caja de entrada estilo ChatGPT */
+        [data-testid="stChatFloatingInputContainer"],
+        div[class*="stChatFloatingInputContainer"],
+        [data-testid="stBottom"],
+        [data-testid="stBottom"] > div,
+        [data-testid="stBottomBlockContainer"] {
+            background-color: #212121 !important;
+            border-top: none !important;
+            box-shadow: none !important;
+        }
+        /* ===== Barra de busqueda estilo Gemini ===== */
+        [data-testid="stChatInput"] {
+            background: #1e1f20 !important;
+            border: 1px solid #3c4043 !important;
+            border-radius: 28px !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+            padding: 8px 14px !important;
+            transition: border-color .2s ease, box-shadow .2s ease;
+        }
+        [data-testid="stChatInput"]:focus-within {
+            border-color: #8ab4f8 !important;
+            box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.30),
+                        0 6px 26px rgba(0, 0, 0, 0.55) !important;
+        }
+        /* Quitar TODOS los bordes internos (elimina el segundo borde) */
+        [data-testid="stChatInput"] *:not(button) {
+            background: transparent !important;
+            border: none !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }
+        /* Boton de enviar circular con degradado */
+        [data-testid="stChatInput"] button {
+            background: linear-gradient(135deg, #8ab4f8, #4a7fe0) !important;
+            border-radius: 50% !important;
+            border: none !important;
+            color: #ffffff !important;
+            box-shadow: 0 2px 10px rgba(138, 180, 248, 0.5);
+            transition: filter .2s ease, transform .1s ease;
+        }
+        [data-testid="stChatInput"] button:hover { filter: brightness(1.15); }
+        [data-testid="stChatInput"] button:active { transform: scale(0.92); }
+        [data-testid="stChatInput"] button svg {
+            fill: #ffffff !important;
+            color: #ffffff !important;
+        }
+        [data-testid="stChatInput"] textarea,
+        textarea[data-testid="stChatInputTextArea"],
+        [data-testid="stChatInput"] [data-baseweb="textarea"] textarea,
+        section.main [data-testid="stChatInput"] textarea {
+            background: transparent !important;
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+            caret-color: #8ab4f8 !important;
+            opacity: 1 !important;
+            font-size: 1.02rem !important;
+            line-height: 1.5 !important;
+            padding: 6px 8px !important;
+        }
+        [data-testid="stChatInput"] textarea::placeholder,
+        textarea[data-testid="stChatInputTextArea"]::placeholder {
+            color: #9a9aa8 !important;
+            -webkit-text-fill-color: #9a9aa8 !important;
+        }
+
+        /* Expander de fuentes */
+        section.main [data-testid="stExpander"] {
+            border: 1px solid #3a3a3a !important;
+            border-radius: 10px !important;
+            background: #1a1a1a !important;
+        }
+        section.main [data-testid="stExpander"] summary,
+        section.main [data-testid="stExpander"] summary * { color: #ececf1 !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    def _render_fuentes(sources):
+        """Renderiza las fuentes como ventana de comandos / terminal."""
+        if not sources:
+            return
+        with st.expander(f"📚 Fuentes ({len(sources)})"):
+            for i, source in enumerate(sources, 1):
+                archivo = html.escape(str(source.get('archivo', 'documento')))
+                pagina = source.get('metadata', {}).get('page', 'N/A')
+                st.markdown(f"""
+<div class="terminal-bar">
+<span class="dot red"></span>
+<span class="dot yellow"></span>
+<span class="dot green"></span>
+<span class="title">fuente {i} &mdash; {archivo} &middot; pag. {pagina}</span>
+</div>
+""", unsafe_allow_html=True)
+                st.code(source['contenido'], language="text")
+
+    # Leer el historial vivo desde el chat_processor
+    historial_actual = []
+    if st.session_state.chat_processor:
+        historial_actual = st.session_state.chat_processor.historial_local
+
+    if not historial_actual:
+        # Pantalla de bienvenida centrada estilo ChatGPT
+        logo_uri = _logo_data_uri()
+        logo_html = f'<img src="{logo_uri}" class="welcome-logo"/>' if logo_uri else ''
+        st.markdown(f"""
+<div class="welcome-screen">
+{logo_html}
+<h1 class="welcome-title">¿En qué puedo ayudarte?</h1>
+<p class="welcome-sub">Consulta documentos de parafiscales y pensiones con IA</p>
+</div>
+""", unsafe_allow_html=True)
+    else:
+        # Conversacion en orden cronologico (estilo ChatGPT)
+        for msg in historial_actual[-30:]:
+            with st.chat_message("user", avatar="🧑"):
+                st.markdown(str(msg.get('mensaje_original', '')))
+            with st.chat_message("assistant", avatar="🤖"):
+                if msg.get('exitoso'):
+                    st.markdown(msg.get('respuesta', ''))
+                    _render_fuentes(msg.get('sources'))
+                else:
+                    st.error(msg.get('respuesta', 'Error'))
+
+    # Entrada fija abajo (estilo ChatGPT) - patron oficial, SIN st.rerun()
+    user_input = st.chat_input("Escribe tu pregunta...")
+    if user_input and user_input.strip():
+        logger.info(f"📨 Mensaje de {st.session_state.usuario}: {user_input[:50]}")
+
+        # Mostrar la pregunta del usuario de inmediato
+        with st.chat_message("user", avatar="🧑"):
+            st.markdown(user_input)
+
+        # Generar y mostrar la respuesta del asistente
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Pensando..."):
                 try:
                     respuesta = st.session_state.chat_processor.procesar_mensaje(
                         mensaje=user_input,
                         contexto={'rol': st.session_state.rol}
                     )
-                    
-                    if respuesta['exitoso']:
-                        st.success("✅ Respuesta generada")
-                        st.session_state.historial.append(respuesta)
-                    else:
-                        st.error(f"❌ Error: {respuesta['respuesta']}")
-                    
-                    st.rerun()
-                
                 except Exception as e:
                     logger.error(f"❌ Error: {e}", exc_info=True)
-                    st.error(f"❌ Error procesando:\n{str(e)}")
-    
-    # Historial
-    st.markdown("### 📜 Historial de Conversación")
-    
-    if st.session_state.historial:
-        # Mostrar en orden inverso (más recientes primero)
-        for msg in reversed(st.session_state.historial[-20:]):
-            with st.container():
-                col1, col2 = st.columns([0.1, 0.9])
-                
-                with col1:
-                    st.markdown("👤")
-                
-                with col2:
-                    st.markdown(f"**Tu pregunta:**")
-                    st.markdown(f"_{msg['mensaje_original']}_")
-                
-                st.divider()
-                
-                col1, col2 = st.columns([0.1, 0.9])
-                
-                with col1:
-                    st.markdown("🤖")
-                
-                with col2:
-                    if msg['exitoso']:
-                        st.markdown(f"**Respuesta IA:**")
-                        st.markdown(msg['respuesta'])
-                        
-                        # Mostrar fuentes
-                        if msg.get('sources'):
-                            with st.expander(f"📚 Fuentes ({len(msg['sources'])})"):
-                                for i, source in enumerate(msg['sources'], 1):
-                                    st.markdown(f"**Fuente {i}: {source['archivo']}**")
-                                    st.caption(f"Página: {source['metadata'].get('page', 'N/A')}")
-                                    st.text(source['contenido'][:300] + "...")
-                    else:
-                        st.error(msg['respuesta'])
-                
-                st.caption(f"⏱️ {msg['timestamp'][:19]}")
-                st.divider()
-    else:
-        st.info("💭 Sin historial aún. ¡Haz una pregunta!")
+                    st.error(f"❌ Error procesando: {str(e)}")
+                    return
+
+            if respuesta.get('exitoso'):
+                st.markdown(respuesta.get('respuesta', ''))
+                _render_fuentes(respuesta.get('sources'))
+            else:
+                st.error(respuesta.get('respuesta', 'Error'))
+
 
 def mostrar_estadisticas():
     """Mostrar estadísticas"""
@@ -652,9 +1046,13 @@ def mostrar_admin_pdfs():
         if st.button("🔄 Procesar carpeta parafiscales", key="btn_parafiscales"):
             with st.spinner("⏳ Procesando parafiscales..."):
                 try:
-                    processor = DataProcessor()
+                    processor = cargar_data_processor()
+                    if not processor:
+                        st.error("❌ Error cargando procesador")
+                        return
+                    
                     resultado = processor.procesar_carpeta(
-                        "parafiscales",
+                        "Manual Paraficales",
                         "parafiscales"
                     )
                     
@@ -672,9 +1070,13 @@ def mostrar_admin_pdfs():
         if st.button("🔄 Procesar carpeta pensiones", key="btn_pensiones"):
             with st.spinner("⏳ Procesando pensiones..."):
                 try:
-                    processor = DataProcessor()
+                    processor = cargar_data_processor()
+                    if not processor:
+                        st.error("❌ Error cargando procesador")
+                        return
+                    
                     resultado = processor.procesar_carpeta(
-                        "pensiones",
+                        "Manual Pensiones",
                         "pensiones"
                     )
                     
@@ -693,7 +1095,11 @@ def mostrar_admin_bd():
     st.markdown("## 💾 Estado de Base de Datos")
     
     try:
-        processor = DataProcessor()
+        processor = cargar_data_processor()
+        if not processor:
+            st.error("❌ Error cargando procesador")
+            return
+        
         estado = processor.obtener_estado_bd()
         
         col1, col2, col3 = st.columns(3)

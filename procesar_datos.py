@@ -11,9 +11,9 @@ import time
 from pathlib import Path
 from typing import List, Dict, Tuple, Any
 from datetime import datetime
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
+from langchain.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 
 logger = logging.getLogger(__name__)
@@ -35,8 +35,8 @@ class DataProcessor:
         self.embeddings = None
         self.vectorstore = None
         self.splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=1500,     # Mayor para no partir tablas/secciones
+            chunk_overlap=250,
             separators=["\n\n", "\n", " ", ""]
         )
         
@@ -46,8 +46,7 @@ class DataProcessor:
         """Inicializar embeddings"""
         if not self.embeddings:
             self.embeddings = OpenAIEmbeddings(
-                api_key=self.api_key,
-                model="text-embedding-3-small"
+                openai_api_key=self.api_key
             )
     
     def _cargar_vectorstore(self, reset: bool = False):
@@ -158,8 +157,10 @@ class DataProcessor:
                 return {'exito': False, 'error': 'No se pudieron crear chunks'}
             
             tamaño_kb = os.path.getsize(ruta_pdf) / 1024
+            titulo = Path(ruta_pdf).stem.replace('_', ' ').strip()
             metadata_base = {
                 'source': Path(ruta_pdf).name,
+                'titulo': titulo,
                 'tipo': tipo_documento,
                 'ruta_completa': ruta_pdf,
                 'fecha_procesamiento': datetime.now().isoformat(),
@@ -167,9 +168,12 @@ class DataProcessor:
                 'tamaño_kb': round(tamaño_kb, 2)
             }
             
+            # Anteponemos el TÍTULO del documento a cada chunk para que la
+            # búsqueda semántica acierte el caso correcto
+            # (p. ej. "elaborar y cargar HT" -> Elaborar_o_Cargar_HT.pdf)
             documentos = [
                 {
-                    'page_content': chunk,
+                    'page_content': f"[Documento: {titulo}]\n{chunk}",
                     'metadata': {**metadata_base, 'chunk_id': i}
                 }
                 for i, chunk in enumerate(chunks)
