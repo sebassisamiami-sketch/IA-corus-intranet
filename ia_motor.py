@@ -166,6 +166,7 @@ Instrucciones:
 - Construye una respuesta clara, completa y bien estructurada (pasos numerados, negritas y, si aparecen en el texto, las consultas SQL exactas).
 - Usa la información de los documentos aunque sea parcial; siempre ofrece la mejor respuesta posible con lo que haya disponible. NO te disculpes ni digas que no encontraste el procedimiento.
 - No inventes datos, pasos ni consultas que no aparezcan en la documentación.
+- Responde directamente, sin saludos ("Hola") ni despedidas.
 
 Documentación interna:
 {context}

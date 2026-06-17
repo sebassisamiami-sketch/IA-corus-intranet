@@ -157,8 +157,10 @@ class DataProcessor:
                 return {'exito': False, 'error': 'No se pudieron crear chunks'}
             
             tamaño_kb = os.path.getsize(ruta_pdf) / 1024
+            titulo = Path(ruta_pdf).stem.replace('_', ' ').strip()
             metadata_base = {
                 'source': Path(ruta_pdf).name,
+                'titulo': titulo,
                 'tipo': tipo_documento,
                 'ruta_completa': ruta_pdf,
                 'fecha_procesamiento': datetime.now().isoformat(),
@@ -166,9 +168,12 @@ class DataProcessor:
                 'tamaño_kb': round(tamaño_kb, 2)
             }
             
+            # Anteponemos el TÍTULO del documento a cada chunk para que la
+            # búsqueda semántica acierte el caso correcto
+            # (p. ej. "elaborar y cargar HT" -> Elaborar_o_Cargar_HT.pdf)
             documentos = [
                 {
-                    'page_content': chunk,
+                    'page_content': f"[Documento: {titulo}]\n{chunk}",
                     'metadata': {**metadata_base, 'chunk_id': i}
                 }
                 for i, chunk in enumerate(chunks)
