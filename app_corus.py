@@ -778,19 +778,19 @@ def mostrar_chat():
             border-top: none !important;
             box-shadow: none !important;
         }
-        /* ===== Barra de busqueda (estilo ChatGPT, pulida) ===== */
+        /* ===== Barra de busqueda estilo Gemini ===== */
         [data-testid="stChatInput"] {
-            background: #343541 !important;
-            border: 1px solid #4d4f5c !important;
-            border-radius: 26px !important;
-            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-            padding: 6px 10px !important;
+            background: #1e1f20 !important;
+            border: 1px solid #3c4043 !important;
+            border-radius: 28px !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+            padding: 8px 14px !important;
             transition: border-color .2s ease, box-shadow .2s ease;
         }
         [data-testid="stChatInput"]:focus-within {
-            border-color: #8b8ef0 !important;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.32),
-                        0 8px 28px rgba(0, 0, 0, 0.55) !important;
+            border-color: #8ab4f8 !important;
+            box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.30),
+                        0 6px 26px rgba(0, 0, 0, 0.55) !important;
         }
         /* Quitar bordes/fondos blancos internos de baseweb */
         [data-testid="stChatInput"] > div,
@@ -802,11 +802,11 @@ def mostrar_chat():
         }
         /* Boton de enviar circular con degradado */
         [data-testid="stChatInput"] button {
-            background: linear-gradient(135deg, #667eea, #764ba2) !important;
+            background: linear-gradient(135deg, #8ab4f8, #4a7fe0) !important;
             border-radius: 50% !important;
             border: none !important;
             color: #ffffff !important;
-            box-shadow: 0 2px 10px rgba(102, 126, 234, 0.5);
+            box-shadow: 0 2px 10px rgba(138, 180, 248, 0.5);
             transition: filter .2s ease, transform .1s ease;
         }
         [data-testid="stChatInput"] button:hover { filter: brightness(1.15); }
@@ -822,7 +822,7 @@ def mostrar_chat():
             background: transparent !important;
             color: #ffffff !important;
             -webkit-text-fill-color: #ffffff !important;
-            caret-color: #8b8ef0 !important;
+            caret-color: #8ab4f8 !important;
             opacity: 1 !important;
             font-size: 1.02rem !important;
             line-height: 1.5 !important;
