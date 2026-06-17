@@ -634,6 +634,50 @@ def pantalla_principal():
 def mostrar_chat():
     """Mostrar interfaz de chat"""
     
+    # ===== TEMA OSCURO Y MINIMALISTA SOLO PARA EL CHAT =====
+    st.markdown("""
+    <style>
+        [data-testid="stAppViewContainer"], section.main {
+            background-color: #0e1117 !important;
+        }
+        section.main h1, section.main h2, section.main h3, section.main h4 {
+            color: #f0f6fc !important;
+        }
+        section.main .stMarkdown p, section.main .stMarkdown li,
+        section.main .stMarkdown strong {
+            color: #e6edf3 !important;
+        }
+        section.main label, section.main .stTextArea label {
+            color: #c9d1d9 !important;
+        }
+        section.main [data-testid="stCaptionContainer"] * { color: #8b949e !important; }
+        /* Caja de texto de la pregunta */
+        section.main .stTextArea textarea {
+            background: #161b22 !important;
+            color: #e6edf3 !important;
+            border: 1px solid #30363d !important;
+            border-radius: 10px !important;
+        }
+        /* Expander de fuentes */
+        section.main [data-testid="stExpander"] {
+            border: 1px solid #30363d !important;
+            border-radius: 10px !important;
+            background: #0d1117 !important;
+        }
+        section.main [data-testid="stExpander"] summary,
+        section.main [data-testid="stExpander"] summary * { color: #e6edf3 !important; }
+        /* Botón de enviar */
+        section.main .stFormSubmitButton button {
+            background: linear-gradient(135deg, #667eea, #764ba2) !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 8px !important;
+        }
+        /* Separadores sutiles en oscuro */
+        section.main hr { border-color: #21262d !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
     # Encabezado con logo (compacto)
     col_logo, col_titulo = st.columns([0.08, 0.92])
     with col_logo:

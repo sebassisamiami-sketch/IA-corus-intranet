@@ -159,8 +159,12 @@ class CorusIntranetEngine:
             if self.vectorstore and self.llm:
                 # 🚨 Prompt personalizado para evitar alucinaciones
                 prompt_template = """Eres un Consultor y Analista de Procesos Senior en Corus.
-Tu misión es resolver la duda técnica del usuario basándote EXCLUSIVAMENTE en la documentación provista.
-Si no encuentras la respuesta exacta en los fragmentos extraídos, debes decir honestamente: "Compañero, tras revisar la base de datos corporativa, no logré ubicar el procedimiento explícito para este escenario." NO inventes información ni asumas pasos que no estén en el texto.
+Responde la pregunta del usuario basándote EXCLUSIVAMENTE en la documentación provista a continuación.
+
+Reglas estrictas:
+1. Si la documentación contiene información relacionada con la pregunta, responde de forma DIRECTA, clara y segura usando esos datos. NO uses frases de disculpa ni digas que no encontraste el procedimiento; simplemente entrega la respuesta.
+2. Usa ÚNICAMENTE la información de los documentos. No inventes datos, pasos, ni consultas SQL que no aparezcan en el texto.
+3. SOLO si los documentos no contienen NINGUNA información relacionada con la pregunta, responde exactamente esto y nada más: "Compañero, tras revisar la base de datos corporativa, no logré ubicar información sobre este tema."
 
 Documentos oficiales extraídos:
 {context}
