@@ -667,12 +667,11 @@ def pantalla_login():
             st.error("🔗 El enlace de invitación no es válido o ya caducó. "
                      "Solicita un enlace nuevo al administrador.")
         
-        # Seleccionar usuario
-        usuarios_list = list(usuarios.keys())
-        usuario_seleccionado = st.selectbox(
-            "Cuenta",
-            usuarios_list,
-            key="select_usuario_login"
+        # Escribir el usuario (sin lista desplegable, por seguridad)
+        usuario_input = st.text_input(
+            "Usuario",
+            key="input_usuario_login",
+            placeholder="Escribe tu usuario"
         )
         
         contraseña = st.text_input(
@@ -693,11 +692,23 @@ def pantalla_login():
                     st.error(f"🔒 Demasiados intentos. Intenta de nuevo en {restante} segundos.")
                     return
 
+                if not usuario_input or not usuario_input.strip():
+                    st.error("❌ Ingresa tu usuario")
+                    return
+
                 if not contraseña:
                     st.error("❌ Ingresa la contraseña")
                     return
-                
+
+                # Resolver el usuario escrito (sin distinguir mayúsculas/minúsculas)
+                usuario_seleccionado = usuario_input.strip()
                 usuario_data = usuarios.get(usuario_seleccionado)
+                if not usuario_data:
+                    for _k, _v in usuarios.items():
+                        if _k.lower() == usuario_seleccionado.lower():
+                            usuario_seleccionado = _k
+                            usuario_data = _v
+                            break
                 
                 if not usuario_data or not _verificar_password(contraseña, usuario_data.get('contraseña', '')):
                     st.session_state.intentos_fallidos = st.session_state.get("intentos_fallidos", 0) + 1
