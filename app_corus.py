@@ -1384,7 +1384,12 @@ def mostrar_admin_video():
 
             # Transcripción completa
             with st.expander("📝 Transcripción completa"):
-                st.text(resultado["transcripcion"])
+                st.text_area(
+                    "Texto transcrito",
+                    value=resultado["transcripcion"],
+                    height=350,
+                    label_visibility="collapsed"
+                )
 
         except Exception as e:
             st.error(f"❌ Error procesando el video: {e}")
