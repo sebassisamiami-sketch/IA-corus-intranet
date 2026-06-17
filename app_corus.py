@@ -286,18 +286,48 @@ def pantalla_login():
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        # Mostrar el logo de la empresa centrado
+        # Estilos oscuros y minimalistas SOLO para la pantalla de login
+        st.markdown("""
+        <style>
+            [data-testid="stAppViewContainer"] {
+                background: radial-gradient(circle at 50% 0%, #1e293b 0%, #0f172a 75%);
+            }
+            [data-testid="stHeader"] { background: transparent; }
+            .login-hero { text-align: center; margin: 8px 0 26px 0; }
+            .login-hero h1 {
+                color: #f1f5f9; font-size: 1.7rem; font-weight: 700;
+                letter-spacing: .5px; margin: 0;
+            }
+            .login-hero p {
+                color: #94a3b8; font-size: .9rem; margin-top: 6px; margin-bottom: 0;
+            }
+            section.main .stTextInput label,
+            section.main .stSelectbox label {
+                color: #cbd5e1 !important; font-weight: 500;
+            }
+            section.main .stTextInput input,
+            section.main div[data-baseweb="select"] > div {
+                background-color: rgba(15, 23, 42, 0.75) !important;
+                color: #f1f5f9 !important;
+                border: 1px solid rgba(148, 163, 184, 0.25) !important;
+                border-radius: 10px !important;
+            }
+            section.main div[data-baseweb="select"] svg { fill: #94a3b8; }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Logo centrado
         if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), use_column_width=True)
+            l1, l2, l3 = st.columns([1, 1.4, 1])
+            with l2:
+                st.image(str(LOGO_PATH), use_column_width=True)
 
         st.markdown("""
-        <div class="login-container">
-        <h1>Corus Intranet Engine</h1>
-        <p>Sistema IA Corporativo v2.0</p>
+        <div class="login-hero">
+            <h1>Corus Intranet Engine</h1>
+            <p>Sistema IA Corporativo &middot; v2.0</p>
         </div>
         """, unsafe_allow_html=True)
-        
-        st.markdown("---")
         
         # Seleccionar usuario
         usuarios_list = list(usuarios.keys())
@@ -313,7 +343,7 @@ def pantalla_login():
             key="input_password_login"
         )
         
-        col_login, col_info = st.columns([2, 1])
+        col_login = st.container()
         
         with col_login:
             if st.button("🔓 Iniciar Sesión", use_container_width=True, type="primary"):
@@ -380,39 +410,13 @@ def pantalla_login():
                         logger.error(f"❌ Error: {e}", exc_info=True)
                         st.error(f"❌ Error iniciando sistema:\n{str(e)}")
         
-        with col_info:
-            if st.button("ℹ️", help="Ver credenciales de prueba"):
-                st.info("""
-                **Usuarios:**
-                - admin / admin123
-                - analista / analista123
-                """)
-        
-        st.markdown("---")
-        
-        # Sección admin (crear usuarios)
-        with st.expander("⚙️ Crear nuevo usuario (solo demo)"):
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                nuevo_usuario = st.text_input("Nuevo usuario", key="new_user_input")
-                nueva_contraseña = st.text_input("Contraseña", type="password", key="new_pass_input")
-                nuevo_rol = st.selectbox("Rol", ["Analista", "Administrador"], key="new_role_select")
-            
-            with col2:
-                if st.button("➕ Crear", key="btn_crear_usuario"):
-                    if not nuevo_usuario or not nueva_contraseña:
-                        st.error("❌ Completa todos los campos")
-                    elif nuevo_usuario in usuarios:
-                        st.error("❌ Usuario ya existe")
-                    else:
-                        usuarios[nuevo_usuario] = {
-                            "contraseña": nueva_contraseña,
-                            "rol": nuevo_rol
-                        }
-                        guardar_usuarios(usuarios)
-                        st.success(f"✅ Usuario '{nuevo_usuario}' creado")
-                        st.rerun()
+        # Nota discreta de acceso (la gestión de usuarios es solo para admin)
+        st.markdown(
+            "<p style='text-align:center; color:#64748b; font-size:.78rem; "
+            "margin-top:22px;'>Acceso restringido &middot; La gestión de usuarios "
+            "está disponible para administradores</p>",
+            unsafe_allow_html=True
+        )
 
 # ===== PANTALLA PRINCIPAL =====
 def pantalla_principal():
