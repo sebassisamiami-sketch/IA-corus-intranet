@@ -42,7 +42,7 @@ import os
 import json
 import csv
 import html
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List
 
@@ -223,6 +223,20 @@ def guardar_usuarios(usuarios: Dict):
     with open(ARCHIVO_USUARIOS, 'w', encoding='utf-8') as f:
         json.dump(usuarios, f, ensure_ascii=False, indent=2)
     logger.info("✅ Usuarios guardados")
+
+def _verificar_password(plano: str, almacenado: str) -> bool:
+    """Verifica la contraseña. Soporta hash bcrypt y texto plano (compatibilidad)."""
+    if not isinstance(almacenado, str) or plano is None:
+        return False
+    # ¿Es un hash bcrypt?
+    if almacenado.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            import bcrypt
+            return bcrypt.checkpw(plano.encode("utf-8"), almacenado.encode("utf-8"))
+        except Exception:
+            return False
+    # Texto plano (sigue funcionando para no romper nada)
+    return plano == almacenado
 
 def registrar_acceso(usuario: str, rol: str, accion: str = "LOGIN"):
     """Registrar acceso en CSV"""
@@ -488,7 +502,10 @@ def inicializar_sesion():
         "inicio_sesion": None,
         "sidebar_expandido": True,
         "session_id": str(datetime.now().timestamp()),
-        "ip": "local"
+        "ip": "local",
+        "intentos_fallidos": 0,
+        "bloqueo_hasta": None,
+        "ultima_actividad": None
     }
     
     for var, valor_default in variables_default.items():
@@ -587,15 +604,29 @@ def pantalla_login():
         with col_login:
             if st.button("Iniciar sesión", use_container_width=True, type="primary"):
                 
+                # 🔒 Bloqueo temporal por intentos fallidos
+                bloqueo_hasta = st.session_state.get("bloqueo_hasta")
+                if bloqueo_hasta and datetime.now() < bloqueo_hasta:
+                    restante = int((bloqueo_hasta - datetime.now()).total_seconds())
+                    st.error(f"🔒 Demasiados intentos. Intenta de nuevo en {restante} segundos.")
+                    return
+
                 if not contraseña:
                     st.error("❌ Ingresa la contraseña")
                     return
                 
                 usuario_data = usuarios.get(usuario_seleccionado)
                 
-                if not usuario_data or usuario_data['contraseña'] != contraseña:
-                    st.error("❌ Credenciales inválidas")
-                    logger.warning(f"Intento fallido: {usuario_seleccionado}")
+                if not usuario_data or not _verificar_password(contraseña, usuario_data.get('contraseña', '')):
+                    st.session_state.intentos_fallidos = st.session_state.get("intentos_fallidos", 0) + 1
+                    intentos = st.session_state.intentos_fallidos
+                    logger.warning(f"Intento fallido ({intentos}/5): {usuario_seleccionado}")
+                    if intentos >= 5:
+                        st.session_state.bloqueo_hasta = datetime.now() + timedelta(minutes=2)
+                        st.session_state.intentos_fallidos = 0
+                        st.error("🔒 Demasiados intentos fallidos. Cuenta bloqueada por 2 minutos.")
+                    else:
+                        st.error(f"❌ Credenciales inválidas ({intentos}/5 intentos)")
                     return
                 
                 with st.spinner("⏳ Inicializando sistema..."):
@@ -637,6 +668,9 @@ def pantalla_login():
                         st.session_state.chat_processor = chat_processor
                         st.session_state.historial = chat_processor.historial_local
                         st.session_state.inicio_sesion = datetime.now()
+                        st.session_state.ultima_actividad = datetime.now()
+                        st.session_state.intentos_fallidos = 0
+                        st.session_state.bloqueo_hasta = None
                         
                         # Registrar
                         registrar_acceso(usuario_seleccionado, usuario_data['rol'], "LOGIN")
@@ -1270,6 +1304,26 @@ def main():
     inicializar_sesion()
     
     if st.session_state.autenticado:
+        # 🔒 Auto-logout por inactividad (15 minutos)
+        ahora = datetime.now()
+        ultima = st.session_state.get("ultima_actividad")
+        if ultima and (ahora - ultima) > timedelta(minutes=15):
+            try:
+                registrar_acceso(st.session_state.usuario, st.session_state.rol, "TIMEOUT")
+            except Exception:
+                pass
+            st.session_state.autenticado = False
+            st.session_state.usuario = None
+            st.session_state.rol = None
+            st.session_state.motor_ia = None
+            st.session_state.chat_processor = None
+            st.session_state.historial = []
+            st.session_state.ultima_actividad = None
+            st.warning("⏱️ Tu sesión se cerró por inactividad (15 minutos). Inicia sesión nuevamente.")
+            pantalla_login()
+            return
+        # Renovar el tiempo de actividad en cada interacción
+        st.session_state.ultima_actividad = ahora
         pantalla_principal()
     else:
         pantalla_login()
