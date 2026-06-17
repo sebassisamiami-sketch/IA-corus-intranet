@@ -22,6 +22,23 @@ from langchain.prompts import PromptTemplate
 
 logger = logging.getLogger(__name__)
 
+# Conocimiento general (modo experto) para preguntas conceptuales.
+# Respeta los manuales: para PROCEDIMIENTOS específicos se usa la documentación (RAG);
+# esto solo cubre EXPLICAR conceptos del dominio.
+EXPERTO_SYS = (
+    "Eres un experto en procesos BPM (Business Process Management), en la herramienta "
+    "WetMethods, en Service Manager y en los procesos de parafiscales y pensiones de Corus. "
+    "Explica los conceptos de forma clara, didáctica y profesional, con ejemplos sencillos.\n"
+    "Contexto del negocio: en Corus los tickets/casos se gestionan y validan en flujos de BPM "
+    "y se RESUELVEN en Service Manager.\n"
+    "Reglas:\n"
+    "- Puedes usar conocimiento general del tema para EXPLICAR conceptos.\n"
+    "- Para PROCEDIMIENTOS o pasos específicos de un caso, NO inventes: usa la documentación "
+    "interna si se incluye, y si el detalle no está, indica que se consulte el manual del caso.\n"
+    "- Responde en español, directo y sin saludos."
+)
+
+
 class CorusIntranetEngine:
     """
     Motor IA de Corus - Singleton Pattern
@@ -268,6 +285,43 @@ Respuesta:"""
                 "y como", "ese caso", "lo anterior"
             ]
             es_followup = any(k in q_norm for k in followup_kw)
+
+            # 2.5) MODO EXPERTO: preguntas conceptuales (qué es / explica / para qué sirve...)
+            # No las forzamos a un caso; respondemos como experto del dominio.
+            conceptual_kw = [
+                "que es", "que son", "que significa", "para que sirve", "en que consiste",
+                "que se hace en", "de que trata", "definicion", "concepto de", "explicame que es",
+                "explica que es", "que es un flujo", "hablame de", "cuentame sobre", "que es el",
+                "que es la"
+            ]
+            if any(k in q_norm for k in conceptual_kw):
+                ctx_exp = ""
+                try:
+                    ctx_exp = "\n\n".join(d.page_content for d in docs[:3])
+                except Exception:
+                    ctx_exp = ""
+                prompt_exp = (
+                    EXPERTO_SYS
+                    + "\n\nDocumentación interna (úsala si es pertinente):\n"
+                    + (ctx_exp[:6000] if ctx_exp else "(sin documentación específica)")
+                    + f"\n\nPregunta: {pregunta}\n\nRespuesta:"
+                )
+                try:
+                    resp_exp = self.llm.invoke([HumanMessage(content=prompt_exp)])
+                    txt_exp = getattr(resp_exp, "content", str(resp_exp))
+                except Exception as e:
+                    logger.error(f"Error modo experto: {e}")
+                    txt_exp = "No pude generar la explicación en este momento."
+                self.estadisticas['queries_exitosas'] += 1
+                logger.info("🎓 Modo experto (pregunta conceptual)")
+                return {
+                    'exito': True,
+                    'respuesta': txt_exp,
+                    'sources': [],
+                    'fuente': None,
+                    'modo': 'EXPERTO',
+                    'timestamp': datetime.now().isoformat()
+                }
 
             # 3) Mapa de fuentes/titulos del retrieval + re-ranking por titulo
             orden_fuentes = []
