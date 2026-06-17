@@ -35,8 +35,8 @@ class DataProcessor:
         self.embeddings = None
         self.vectorstore = None
         self.splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=600,      # Reducido de 1000 a 600
+            chunk_overlap=100,   # Reducido de 200 a 100
             separators=["\n\n", "\n", " ", ""]
         )
         
