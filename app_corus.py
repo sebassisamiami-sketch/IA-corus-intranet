@@ -1341,8 +1341,13 @@ def mostrar_admin_video():
         type=["mp4", "mov", "mkv", "webm", "m4a", "mp3", "wav", "mpeg", "mpga"],
         key="uploader_video"
     )
-    titulo = st.text_input("Título del manual", value="Manual generado desde video",
-                           key="titulo_manual_video")
+    # El título del caso se toma del NOMBRE DEL ARCHIVO (editable)
+    titulo_def = os.path.splitext(archivo.name)[0] if archivo else "Manual"
+    titulo = st.text_input(
+        "Título del caso (se toma del nombre del archivo, puedes editarlo)",
+        value=titulo_def,
+        key=f"titulo_manual_{archivo.name if archivo else 'none'}"
+    )
 
     st.caption("💡 Recomendado: videos de pocos minutos. Para videos largos puede tardar más.")
 
