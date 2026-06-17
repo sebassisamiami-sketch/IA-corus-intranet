@@ -129,8 +129,8 @@ class CorusIntranetEngine:
                 openai_api_key=self.api_key,
                 model_name="gpt-3.5-turbo",
                 temperature=0.0,
-                max_tokens=1024,  # Reducido de 2048 a 1024
-                request_timeout=60
+                max_tokens=2048,  # Respuestas mas completas
+                request_timeout=90
             )
             logger.info("✅ LLM creado")
         except Exception as e:
@@ -245,29 +245,50 @@ Respuesta:"""
                     'timestamp': datetime.now().isoformat()
                 }
 
-            # 2) 🔒 Usar SOLO el documento mas relevante para NO mezclar casos
+            # 2) 🔒 Identificar el documento mas relevante (NO mezclar casos)
             fuente_principal = docs[0].metadata.get('source')
-            docs_filtrados = [
-                d for d in docs if d.metadata.get('source') == fuente_principal
-            ]
 
-            # 3) Construir contexto unicamente con ese documento
-            contexto_texto = "\n\n".join(d.page_content for d in docs_filtrados)
+            # 3) Traer TODOS los fragmentos de ese documento para una
+            #    respuesta COMPLETA (ordenados por chunk_id)
+            chunks_doc = []
+            try:
+                data = self.vectorstore._collection.get(
+                    where={"source": fuente_principal}
+                )
+                textos = data.get('documents') or []
+                metas = data.get('metadatas') or []
+                pares = list(zip(textos, metas))
+                pares.sort(key=lambda x: (x[1] or {}).get('chunk_id', 0))
+                chunks_doc = pares
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudieron traer todos los chunks: {e}")
+
+            if not chunks_doc:
+                chunks_doc = [
+                    (d.page_content, d.metadata)
+                    for d in docs
+                    if d.metadata.get('source') == fuente_principal
+                ]
+
+            # 4) Construir contexto completo (con tope de seguridad de tokens)
+            contexto_texto = "\n\n".join(t for t, _ in chunks_doc)
+            if len(contexto_texto) > 12000:
+                contexto_texto = contexto_texto[:12000]
             prompt_final = self.prompt_str.format(
                 context=contexto_texto, question=pregunta
             )
 
-            # 4) Generar respuesta
+            # 5) Generar respuesta
             respuesta_llm = self.llm.invoke([HumanMessage(content=prompt_final)])
             self.estadisticas['queries_exitosas'] += 1
 
             sources = [
                 {
-                    'contenido': d.page_content[:500],
-                    'metadata': d.metadata,
-                    'archivo': d.metadata.get('source', 'desconocido')
+                    'contenido': t,
+                    'metadata': m or {},
+                    'archivo': (m or {}).get('source', 'desconocido')
                 }
-                for d in docs_filtrados
+                for t, m in chunks_doc
             ]
 
             return {
