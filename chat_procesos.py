@@ -6,12 +6,31 @@ Incluye enriquecimiento de prompts por rol, persistencia y ahorro de tokens
 
 import json
 import logging
+import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from ia_motor import obtener_motor
 
 logger = logging.getLogger(__name__)
+
+
+def _normalizar_texto(s: str) -> str:
+    """Normaliza texto para detectar saludos/cierres tolerando errores de
+    escritura: minúsculas, sin tildes, sin signos, y colapsa letras repetidas
+    (ej. 'graciaas', 'graciasss', 'holaa' -> 'gracias', 'gracias', 'hola')."""
+    s = (s or "").lower().strip()
+    # quitar tildes/acentos
+    s = ''.join(c for c in unicodedata.normalize('NFD', s)
+                if unicodedata.category(c) != 'Mn')
+    # dejar solo letras, números y espacios
+    s = re.sub(r'[^a-z0-9\s]', ' ', s)
+    # colapsar letras repetidas (graciaas -> gracias)
+    s = re.sub(r'(.)\1+', r'\1', s)
+    # colapsar espacios
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
 
 class ChatProcessor:
     """
@@ -101,10 +120,20 @@ class ChatProcessor:
                 }
 
             # 🚨 FILTRO INTELIGENTE DE CIERRE DE CASOS (AHORRO DE TOKENS) 🚨
-            clean_msg = mensaje.lower().strip()
-            frases_cierre = ["gracias", "caso cerrado", "ya quedo", "listo", "fin", "ok gracias", "muchas gracias"]
-            
-            if any(f == clean_msg or clean_msg.startswith(f) for f in frases_cierre):
+            clean_msg = _normalizar_texto(mensaje)
+            frases_cierre = [
+                "gracias", "muchas gracias", "mil gracias", "ok gracias",
+                "gracias crack", "caso cerrado", "ya quedo", "listo", "fin",
+                "perfecto gracias", "vale gracias", "thanks", "thank you"
+            ]
+
+            if any(
+                f == clean_msg
+                or clean_msg.startswith(f + " ")
+                or clean_msg.endswith(" " + f)
+                or (f in clean_msg and len(clean_msg) <= len(f) + 12)
+                for f in frases_cierre
+            ):
                 logger.info("🛑 Comando de cierre detectado. Abortando consumo de IA OpenAI.")
                 respuesta_cierre = {
                     'exitoso': True,
@@ -122,11 +151,11 @@ class ChatProcessor:
             
             # 👋 FILTRO DE SALUDOS / CHARLA (no consume RAG)
             frases_saludo = [
-                "hola", "buenas", "buenos dias", "buenos días", "buenas tardes",
-                "buenas noches", "hey", "que tal", "qué tal", "como estas",
-                "cómo estás", "como vas", "saludos", "buen dia", "buen día"
+                "hola", "buenas", "buenos dias", "buenas tardes",
+                "buenas noches", "hey", "que tal", "como estas",
+                "como vas", "saludos", "buen dia", "ola"
             ]
-            if (any(clean_msg == f or clean_msg.startswith(f) for f in frases_saludo)
+            if (any(clean_msg == f or clean_msg.startswith(f + " ") for f in frases_saludo)
                     and len(clean_msg) <= 30):
                 respuesta_saludo = {
                     'exitoso': True,
