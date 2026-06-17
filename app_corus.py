@@ -182,6 +182,17 @@ st.markdown("""
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
     }
 
+    /* Ocultar barra/herramientas de Streamlit (Deploy, menu, footer) y franja blanca superior */
+    header[data-testid="stHeader"] {
+        background: transparent !important;
+        height: 0 !important;
+    }
+    [data-testid="stToolbar"] { display: none !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    [data-testid="stStatusWidget"] { display: none !important; }
+    #MainMenu { display: none !important; }
+    footer { display: none !important; }
+
     /* Colores corporativos */
     :root {
         --primary: #667eea;
