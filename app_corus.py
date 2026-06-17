@@ -787,6 +787,12 @@ def mostrar_chat():
             padding: 10px 0 !important;
         }
         [data-testid="stChatMessage"] * { color: #ececf1 !important; }
+        /* Avatar (logo) sin recortar: se ve completo y encuadrado */
+        [data-testid="stChatMessage"] img {
+            object-fit: contain !important;
+            background: transparent !important;
+            padding: 2px !important;
+        }
 
         /* Barra inferior y caja de entrada estilo ChatGPT */
         [data-testid="stChatFloatingInputContainer"],
