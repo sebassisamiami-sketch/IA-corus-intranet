@@ -1096,10 +1096,12 @@ def mostrar_chat():
                     st.error(msg.get('respuesta', 'Error'))
 
     # Adjuntar imagen (opcional) para analizar casos de BPM / Service Manager / WetMethods
+    if "img_uploader_n" not in st.session_state:
+        st.session_state.img_uploader_n = 0
     imagen = st.file_uploader(
         "📎 Adjuntar imagen del caso (opcional)",
         type=["png", "jpg", "jpeg", "webp"],
-        key="img_chat"
+        key=f"img_chat_{st.session_state.img_uploader_n}"
     )
 
     # Si hay imagen adjunta, mostramos un campo + botón para enviarla (con o sin texto)
@@ -1143,6 +1145,7 @@ def mostrar_chat():
         with st.chat_message("assistant", avatar=avatar_ia):
             if usar_imagen and imagen is not None:
                 # ----- Caso con IMAGEN (análisis de visión) -----
+                r = None
                 with st.spinner("Analizando la imagen..."):
                     try:
                         from vision_chat import analizar_imagen
@@ -1158,21 +1161,27 @@ def mostrar_chat():
                             pregunta_final, imagen.getvalue(),
                             getattr(imagen, "type", "image/png"), ctx_doc
                         )
-                        st.markdown(r)
-                        try:
-                            st.session_state.chat_processor.historial_local.append({
-                                "exitoso": True,
-                                "mensaje_original": pregunta_final + "  [imagen adjunta]",
-                                "respuesta": r, "sources": [],
-                                "timestamp": datetime.now().isoformat(),
-                                "usuario": st.session_state.usuario,
-                                "rol": st.session_state.rol, "modo": "VISION",
-                            })
-                        except Exception:
-                            pass
                     except Exception as e:
                         logger.error(f"❌ Error visión: {e}", exc_info=True)
                         st.error(f"❌ Error analizando la imagen: {e}")
+
+                if r:
+                    st.markdown(r)
+                    # Guardar el turno en el historial (como texto)
+                    try:
+                        st.session_state.chat_processor.historial_local.append({
+                            "exitoso": True,
+                            "mensaje_original": pregunta_final + "  [imagen adjunta]",
+                            "respuesta": r, "sources": [],
+                            "timestamp": datetime.now().isoformat(),
+                            "usuario": st.session_state.usuario,
+                            "rol": st.session_state.rol, "modo": "VISION",
+                        })
+                    except Exception:
+                        pass
+                    # 🧹 Limpiar la imagen adjunta para que no quede "seleccionada"
+                    st.session_state.img_uploader_n += 1
+                    st.rerun()
             else:
                 # ----- Caso solo TEXTO (RAG normal) -----
                 with st.spinner("Pensando..."):
