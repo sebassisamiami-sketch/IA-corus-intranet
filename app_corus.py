@@ -104,6 +104,39 @@ def cargar_motor_ia():
         logger.error(f"❌ Error cargando motor: {e}")
         return None
 
+def detectar_carpetas_documentos():
+    """Detecta las carpetas (a nivel raíz del repo) que contienen PDFs.
+    Cada una se trata como una sección. Devuelve una lista de nombres."""
+    base = Path(__file__).parent
+    excluir = {".git", ".streamlit", ".devcontainer", ".agents", "data",
+               "logs", "__pycache__", ".github"}
+    carpetas = []
+    try:
+        for d in sorted(base.iterdir(), key=lambda x: x.name.lower()):
+            if d.is_dir() and d.name not in excluir and not d.name.startswith("."):
+                if any(True for _ in d.rglob("*.pdf")):
+                    carpetas.append(d.name)
+    except Exception as e:
+        logger.error(f"Error detectando carpetas: {e}")
+    return carpetas
+
+def subcarpetas_con_pdfs(nombre_carpeta):
+    """Lista las subcarpetas (y PDFs sueltos) que contienen PDFs dentro de una carpeta."""
+    base = Path(__file__).parent / nombre_carpeta
+    subs = []
+    try:
+        for sub in sorted(base.iterdir(), key=lambda x: x.name.lower()):
+            if sub.is_dir():
+                n = len(list(sub.rglob("*.pdf")))
+                if n > 0:
+                    subs.append((sub.name, n))
+        pdfs_raiz = list(base.glob("*.pdf"))
+        if pdfs_raiz:
+            subs.append(("(archivos sueltos)", len(pdfs_raiz)))
+    except Exception:
+        pass
+    return subs
+
 def _autoindexar_documentos(motor):
     """Indexa los PDFs del repo automaticamente si el indice esta vacio.
 
@@ -124,12 +157,10 @@ def _autoindexar_documentos(motor):
         from procesar_datos import DataProcessor
         processor = DataProcessor()
         total = 0
-        for carpeta, tipo in [("Manual Paraficales", "parafiscales"),
-                              ("Manual Pensiones", "pensiones")]:
-            if Path(carpeta).exists():
-                res = processor.procesar_carpeta(carpeta, tipo)
-                if res.get('exito'):
-                    total += res.get('chunks_creados', 0)
+        for carpeta in detectar_carpetas_documentos():
+            res = processor.procesar_carpeta(carpeta, carpeta)
+            if res.get('exito'):
+                total += res.get('chunks_creados', 0)
         logger.info(f"✅ Auto-indexado completado: {total} chunks")
     except Exception as e:
         logger.error(f"⚠️ Error auto-indexando: {e}", exc_info=True)
@@ -1148,59 +1179,65 @@ def mostrar_admin_usuarios():
                 st.rerun()
 
 def mostrar_admin_pdfs():
-    """Panel de procesamiento de PDFs"""
-    
+    """Panel de procesamiento de PDFs (dinámico: una sección por carpeta del repo)."""
     st.markdown("## 📄 Procesar Documentos")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### 📁 Parafiscales")
-        if st.button("🔄 Procesar carpeta parafiscales", key="btn_parafiscales"):
-            with st.spinner("⏳ Procesando parafiscales..."):
-                try:
-                    processor = cargar_data_processor()
-                    if not processor:
-                        st.error("❌ Error cargando procesador")
-                        return
-                    
-                    resultado = processor.procesar_carpeta(
-                        "Manual Paraficales",
-                        "parafiscales"
-                    )
-                    
-                    if resultado['exito']:
-                        st.success(f"✅ {resultado['archivos_procesados']} archivos procesados")
-                        st.info(f"📊 {resultado['chunks_creados']} chunks creados")
-                    else:
-                        st.error(f"❌ {resultado.get('error', 'Error desconocido')}")
-                
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-    
-    with col2:
-        st.markdown("### 📁 Pensiones")
-        if st.button("🔄 Procesar carpeta pensiones", key="btn_pensiones"):
-            with st.spinner("⏳ Procesando pensiones..."):
-                try:
-                    processor = cargar_data_processor()
-                    if not processor:
-                        st.error("❌ Error cargando procesador")
-                        return
-                    
-                    resultado = processor.procesar_carpeta(
-                        "Manual Pensiones",
-                        "pensiones"
-                    )
-                    
-                    if resultado['exito']:
-                        st.success(f"✅ {resultado['archivos_procesados']} archivos procesados")
-                        st.info(f"📊 {resultado['chunks_creados']} chunks creados")
-                    else:
-                        st.error(f"❌ {resultado.get('error', 'Error desconocido')}")
-                
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
+
+    carpetas = detectar_carpetas_documentos()
+    if not carpetas:
+        st.info("ℹ️ No se detectaron carpetas con PDFs en el repositorio. "
+                "Sube una carpeta con PDFs a GitHub y aparecerá aquí automáticamente.")
+        return
+
+    st.caption(
+        f"Se detectaron **{len(carpetas)}** carpeta(s) con documentos. "
+        "Cada carpeta nueva que subas a GitHub aparecerá aquí automáticamente "
+        "(y se indexa sola al iniciar la app)."
+    )
+
+    # Botón para procesar TODAS las carpetas
+    if st.button("🔄 Procesar TODAS las carpetas", type="primary", use_container_width=True):
+        processor = cargar_data_processor()
+        if not processor:
+            st.error("❌ Error cargando procesador")
+        else:
+            total = 0
+            with st.spinner("⏳ Procesando todas las carpetas..."):
+                for c in carpetas:
+                    res = processor.procesar_carpeta(c, c)
+                    if res.get('exito'):
+                        total += res.get('chunks_creados', 0)
+            st.success(f"✅ Listo. {total} fragmentos indexados en total.")
+
+    st.divider()
+
+    # Una sección independiente por cada carpeta
+    for carpeta in carpetas:
+        st.markdown(f"### 📁 {carpeta}")
+
+        subs = subcarpetas_con_pdfs(carpeta)
+        if subs:
+            for nombre_sub, n in subs:
+                st.markdown(f"&nbsp;&nbsp;&nbsp;📂 **{nombre_sub}** — {n} PDF(s)", unsafe_allow_html=True)
+        else:
+            st.caption("Sin subcarpetas con PDFs.")
+
+        if st.button(f"🔄 Procesar '{carpeta}'", key=f"btn_proc_{carpeta}"):
+            processor = cargar_data_processor()
+            if not processor:
+                st.error("❌ Error cargando procesador")
+            else:
+                with st.spinner(f"⏳ Procesando {carpeta}..."):
+                    try:
+                        resultado = processor.procesar_carpeta(carpeta, carpeta)
+                        if resultado['exito']:
+                            st.success(f"✅ {resultado['archivos_procesados']} archivos procesados")
+                            st.info(f"📊 {resultado['chunks_creados']} chunks creados")
+                        else:
+                            st.error(f"❌ {resultado.get('error', 'Error desconocido')}")
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+
+        st.divider()
 
 def mostrar_admin_bd():
     """Panel estado de base de datos"""
