@@ -366,62 +366,83 @@ def pantalla_login():
     
     usuarios = cargar_usuarios()
     
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1, 12, 1])
     
     with col2:
-        # Estilos oscuros y minimalistas SOLO para la pantalla de login
+        # Estilos estilo Microsoft (tarjeta blanca centrada) SOLO para login
         st.markdown("""
         <style>
-            [data-testid="stAppViewContainer"] {
-                background: radial-gradient(circle at 50% 0%, #1e293b 0%, #0f172a 75%);
-            }
+            /* Fondo gris claro estilo Microsoft */
+            [data-testid="stAppViewContainer"] { background: #f2f2f2; }
             [data-testid="stHeader"] { background: transparent; }
-            .login-hero { text-align: center; margin: 8px 0 26px 0; }
-            .login-hero h1 {
-                color: #f1f5f9; font-size: 1.7rem; font-weight: 700;
-                letter-spacing: .5px; margin: 0;
+
+            /* Tarjeta central blanca */
+            section.main .block-container {
+                max-width: 470px;
+                background: #ffffff;
+                padding: 44px 44px 36px 44px;
+                margin-top: 6vh;
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+                border-radius: 2px;
             }
-            .login-hero p {
-                color: #94a3b8; font-size: .9rem; margin-top: 6px; margin-bottom: 0;
+
+            /* Encabezado */
+            .ms-title {
+                font-size: 1.55rem; font-weight: 600;
+                color: #1b1b1b; margin: 16px 0 6px 0;
             }
+            .ms-sub { color: #605e5c; font-size: .9rem; margin-bottom: 20px; }
+
+            /* Etiquetas */
             section.main .stTextInput label,
             section.main .stSelectbox label {
-                color: #cbd5e1 !important; font-weight: 500;
+                color: #1b1b1b !important; font-weight: 600; font-size: .85rem;
             }
+            /* Inputs estilo Microsoft (borde recto) */
             section.main .stTextInput input,
             section.main div[data-baseweb="select"] > div {
-                background-color: rgba(15, 23, 42, 0.75) !important;
-                color: #f1f5f9 !important;
-                border: 1px solid rgba(148, 163, 184, 0.25) !important;
-                border-radius: 10px !important;
+                background: #ffffff !important;
+                color: #1b1b1b !important;
+                border: 1px solid #8a8886 !important;
+                border-radius: 0 !important;
             }
-            section.main div[data-baseweb="select"] svg { fill: #94a3b8; }
+            section.main .stTextInput input:focus {
+                border-color: #0067b8 !important;
+                box-shadow: none !important;
+            }
+            /* Botón azul Microsoft */
+            section.main .stButton button[kind="primary"] {
+                background: #0067b8 !important;
+                color: #ffffff !important;
+                border: none !important;
+                border-radius: 0 !important;
+                font-weight: 600;
+            }
+            section.main .stButton button[kind="primary"]:hover {
+                background: #005da6 !important;
+                transform: none;
+                box-shadow: none;
+            }
         </style>
         """, unsafe_allow_html=True)
 
-        # Logo centrado (tamaño compacto)
+        # Logo (estilo Microsoft, arriba a la izquierda)
         if LOGO_PATH.exists():
-            l1, l2, l3 = st.columns([1, 1, 1])
-            with l2:
-                st.image(str(LOGO_PATH), width=120)
+            st.image(str(LOGO_PATH), width=108)
 
-        st.markdown("""
-        <div class="login-hero">
-            <h1>Corus Intranet Engine</h1>
-            <p>Sistema IA Corporativo &middot; v2.0</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown('<div class="ms-title">Iniciar sesión</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ms-sub">Usa tu cuenta corporativa de Corus</div>', unsafe_allow_html=True)
         
         # Seleccionar usuario
         usuarios_list = list(usuarios.keys())
         usuario_seleccionado = st.selectbox(
-            "👤 Selecciona un usuario",
+            "Cuenta",
             usuarios_list,
             key="select_usuario_login"
         )
         
         contraseña = st.text_input(
-            "🔑 Contraseña",
+            "Contraseña",
             type="password",
             key="input_password_login"
         )
@@ -429,7 +450,7 @@ def pantalla_login():
         col_login = st.container()
         
         with col_login:
-            if st.button("🔓 Iniciar Sesión", use_container_width=True, type="primary"):
+            if st.button("Iniciar sesión", use_container_width=True, type="primary"):
                 
                 if not contraseña:
                     st.error("❌ Ingresa la contraseña")
