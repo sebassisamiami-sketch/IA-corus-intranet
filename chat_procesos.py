@@ -25,6 +25,7 @@ class ChatProcessor:
         self.rol = rol
         self.motor_ia = obtener_motor()
         self.historial_local = []
+        self.ultima_fuente = None  # ultimo documento/caso usado (para seguimiento)
         self.archivo_sesion = f"data/sessions/{usuario}_{rol}.json"
         
         Path("data/sessions").mkdir(parents=True, exist_ok=True)
@@ -153,11 +154,18 @@ class ChatProcessor:
             # Enriquecer prompt
             prompt_enriquecido = self._enriquecer_prompt(mensaje)
             
-            # Obtener respuesta del motor
+            # Obtener respuesta del motor (pasando el último caso para seguimiento)
+            ctx = dict(contexto or {})
+            ctx['rol'] = self.rol
+            ctx['ultima_fuente'] = self.ultima_fuente
             resultado_motor = self.motor_ia.query(
                 pregunta=prompt_enriquecido,
-                contexto=contexto or {'rol': self.rol}
+                contexto=ctx
             )
+
+            # Recordar el caso actual para preguntas de seguimiento
+            if resultado_motor.get('fuente'):
+                self.ultima_fuente = resultado_motor.get('fuente')
             
             # Construir respuesta
             respuesta = {
