@@ -146,14 +146,6 @@ def registrar_acceso(usuario: str, rol: str, accion: str = "LOGIN"):
     except Exception as e:
         logger.error(f"Error registrando acceso: {e}")
 
-# ===== CONFIGURACIÓN STREAMLIT =====
-st.set_page_config(
-    page_title="🤖 Corus Intranet Engine v2.0",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
 # ===== CSS PERSONALIZADO =====
 st.markdown("""
 <style>
