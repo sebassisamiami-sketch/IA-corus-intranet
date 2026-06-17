@@ -643,6 +643,11 @@ def pantalla_login():
                 overflow: hidden !important;
                 transition: border-color .15s ease, box-shadow .15s ease;
             }
+            /* Forzar BLANCO en las capas internas de Streamlit (tema oscuro) */
+            section.main .stTextInput div[data-baseweb="input"] > div,
+            section.main .stTextInput [data-baseweb="base-input"] {
+                background: #ffffff !important;
+            }
             /* Select del login (si aplica) */
             section.main div[data-baseweb="select"] > div {
                 background: #ffffff !important;
@@ -655,6 +660,7 @@ def pantalla_login():
             section.main .stTextInput input {
                 background: transparent !important;
                 color: #1b1b1b !important;
+                -webkit-text-fill-color: #1b1b1b !important;
                 border: none !important;
                 box-shadow: none !important;
                 padding: 12px 14px !important;
@@ -685,14 +691,19 @@ def pantalla_login():
                 box-shadow: none !important;
                 border: none !important;
             }
-            /* Botón mostrar/ocultar contraseña: transparente (sin recuadro oscuro) */
+            /* Botón mostrar/ocultar contraseña: gris matizado y semitransparente */
             section.main .stTextInput div[data-baseweb="input"] button {
                 background: transparent !important;
                 border: none !important;
-                color: #605e5c !important;
+                color: rgba(96, 94, 92, 0.55) !important;
             }
-            section.main .stTextInput div[data-baseweb="input"] button:hover {
-                color: #2b88ff !important;
+            section.main .stTextInput div[data-baseweb="input"] button svg {
+                fill: rgba(96, 94, 92, 0.55) !important;
+            }
+            section.main .stTextInput div[data-baseweb="input"] button:hover,
+            section.main .stTextInput div[data-baseweb="input"] button:hover svg {
+                color: rgba(43, 136, 255, 0.85) !important;
+                fill: rgba(43, 136, 255, 0.85) !important;
             }
             /* Botón azul Microsoft (incluye el botón del formulario de login) */
             section.main .stButton button[kind="primary"],
