@@ -601,18 +601,22 @@ def pantalla_login():
         # Estilos estilo Microsoft (tarjeta blanca centrada) SOLO para login
         st.markdown("""
         <style>
-            /* Fondo gris claro estilo Microsoft */
-            [data-testid="stAppViewContainer"] { background: #f2f2f2; }
+            /* Fondo con degradado suave y elegante */
+            [data-testid="stAppViewContainer"] {
+                background: linear-gradient(135deg, #f5f7fb 0%, #eef1f7 45%, #e7ecf4 100%) !important;
+            }
             [data-testid="stHeader"] { background: transparent; }
 
-            /* Tarjeta central blanca */
+            /* Tarjeta central blanca, limpia y con sombra suave */
             section.main .block-container {
                 max-width: 470px;
                 background: #ffffff;
-                padding: 44px 44px 36px 44px;
-                margin-top: 6vh;
-                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-                border-radius: 2px;
+                padding: 46px 44px 38px 44px;
+                margin-top: 7vh;
+                box-shadow: 0 12px 40px rgba(31, 41, 70, 0.12),
+                            0 2px 8px rgba(31, 41, 70, 0.08);
+                border: 1px solid #eceff4;
+                border-radius: 14px;
             }
 
             /* Encabezado */
