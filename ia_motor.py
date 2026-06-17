@@ -128,7 +128,7 @@ class CorusIntranetEngine:
                 openai_api_key=self.api_key,
                 model_name="gpt-3.5-turbo",
                 temperature=0.0,
-                max_tokens=2048,
+                max_tokens=1024,  # Reducido de 2048 a 1024
                 request_timeout=60
             )
             logger.info("✅ LLM creado")
@@ -174,7 +174,7 @@ Respuesta experta (usa listas, negritas y formato claro para el analista):"""
 
                 self.chain = ConversationalRetrievalChain.from_llm(
                     llm=self.llm,
-                    retriever=self.vectorstore.as_retriever(search_kwargs={"k": 6}),
+                    retriever=self.vectorstore.as_retriever(search_kwargs={"k": 3}),  # Reducido de 6 a 3
                     memory=self.memory,
                     return_source_documents=True,
                     combine_docs_chain_kwargs={"prompt": PROMPT},
