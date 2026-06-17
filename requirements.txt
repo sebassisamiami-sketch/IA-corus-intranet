@@ -1,20 +1,21 @@
-# Core - ULTRA MINIMALISTAS
+# Core
 streamlit==1.28.0
 python-dotenv==1.0.0
 
-# OpenAI - VERSION ANTIGUA COMPATIBLE
+# OpenAI - VERSION COMPATIBLE
 openai==0.28.1
 
-# LangChain - COMPATIBLE CON OPENAI 0.28
-langchain==0.0.350
-langchain-community==0.0.10
+# LangChain - VERSIONES COMPATIBLES ENTRE SÍ
+langchain==0.0.354
+langchain-community==0.0.38
+langchain-core==0.1.52
 
-# Vector Store - VERSION ANTIGUA ESTABLE
+# Vector Store
 chromadb==0.4.15
 
-# PDF Processing - SIMPLE
+# PDF Processing
 pypdf==3.17.0
 
-# Data - MINIMO
+# Data
 pandas==2.0.0
 tiktoken==0.5.1
