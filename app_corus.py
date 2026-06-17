@@ -568,6 +568,7 @@ def pantalla_principal():
             admin_opcion = st.selectbox(
                 "Herramientas Admin",
                 [
+                    "— Inicio —",
                     "Gestionar Usuarios",
                     "Procesar PDFs",
                     "Estado de BD",
@@ -613,13 +614,13 @@ def pantalla_principal():
         st.caption(f"⏱️ Inicio: {st.session_state.inicio_sesion.strftime('%H:%M:%S')}")
     
     # CONTENIDO PRINCIPAL
-    if opcion == "💬 Chat":
-        mostrar_chat()
-    elif opcion == "📊 Estadísticas":
-        mostrar_estadisticas()
-    
-    # Panel Admin
-    if st.session_state.rol == "Administrador" and admin_opcion:
+    mostrar_admin = (
+        st.session_state.rol == "Administrador"
+        and admin_opcion
+        and admin_opcion != "— Inicio —"
+    )
+
+    if mostrar_admin:
         if admin_opcion == "Gestionar Usuarios":
             mostrar_admin_usuarios()
         elif admin_opcion == "Procesar PDFs":
@@ -630,150 +631,92 @@ def pantalla_principal():
             mostrar_admin_accesos()
         elif admin_opcion == "Estadísticas IA":
             mostrar_admin_estadisticas_ia()
+    elif opcion == "💬 Chat":
+        mostrar_chat()
+    elif opcion == "📊 Estadísticas":
+        mostrar_estadisticas()
 
 def mostrar_chat():
-    """Mostrar interfaz de chat"""
-    
-    # ===== TEMA OSCURO Y MINIMALISTA SOLO PARA EL CHAT =====
+    """Interfaz de chat estilo ChatGPT (oscuro y minimalista)"""
+
+    # ===== TEMA OSCURO ESTILO CHATGPT =====
     st.markdown("""
     <style>
         [data-testid="stAppViewContainer"], section.main {
-            background-color: #0e1117 !important;
+            background-color: #212121 !important;
+        }
+        /* Columna de conversacion centrada */
+        section.main .block-container {
+            max-width: 820px;
+            padding-top: 1.2rem;
+            padding-bottom: 7rem;
         }
         section.main h1, section.main h2, section.main h3, section.main h4 {
-            color: #f0f6fc !important;
+            color: #ececf1 !important;
         }
         section.main .stMarkdown p, section.main .stMarkdown li,
         section.main .stMarkdown strong {
-            color: #e6edf3 !important;
+            color: #ececf1 !important;
         }
-        section.main label, section.main .stTextArea label {
-            color: #c9d1d9 !important;
+        section.main [data-testid="stCaptionContainer"] * { color: #9a9a9a !important; }
+        /* Mensajes estilo ChatGPT */
+        [data-testid="stChatMessage"] {
+            background: transparent !important;
+            padding: 8px 0 !important;
         }
-        section.main [data-testid="stCaptionContainer"] * { color: #8b949e !important; }
-        /* Caja de texto de la pregunta */
-        section.main .stTextArea textarea {
-            background: #161b22 !important;
-            color: #e6edf3 !important;
-            border: 1px solid #30363d !important;
-            border-radius: 10px !important;
+        [data-testid="stChatMessageContent"] { color: #ececf1 !important; }
+        /* Caja de entrada fija abajo estilo ChatGPT */
+        [data-testid="stChatInput"] {
+            background: #2f2f2f !important;
+            border: 1px solid #4d4d4d !important;
+            border-radius: 26px !important;
         }
+        [data-testid="stChatInput"] textarea { color: #ececf1 !important; }
+        [data-testid="stBottom"] > div { background: transparent !important; }
         /* Expander de fuentes */
         section.main [data-testid="stExpander"] {
-            border: 1px solid #30363d !important;
+            border: 1px solid #3a3a3a !important;
             border-radius: 10px !important;
-            background: #0d1117 !important;
+            background: #1a1a1a !important;
         }
         section.main [data-testid="stExpander"] summary,
-        section.main [data-testid="stExpander"] summary * { color: #e6edf3 !important; }
-        /* Botón de enviar */
-        section.main .stFormSubmitButton button {
-            background: linear-gradient(135deg, #667eea, #764ba2) !important;
-            color: #ffffff !important;
-            border: none !important;
-            border-radius: 8px !important;
-        }
-        /* Separadores sutiles en oscuro */
-        section.main hr { border-color: #21262d !important; }
+        section.main [data-testid="stExpander"] summary * { color: #ececf1 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-    # Encabezado con logo (compacto)
+    # Encabezado compacto
     col_logo, col_titulo = st.columns([0.08, 0.92])
     with col_logo:
         if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), width=58)
+            st.image(str(LOGO_PATH), width=52)
     with col_titulo:
-        st.markdown("## 💬 Chat Corporativo IA")
+        st.markdown("## Chat Corporativo IA")
         st.caption("Consulta documentos de parafiscales y pensiones con IA")
-    
-    # Input con Enter
-    with st.form("form_chat", clear_on_submit=True):
-        col_input, col_button = st.columns([0.85, 0.15])
-        
-        with col_input:
-            user_input = st.text_area(
-                "Tu pregunta:",
-                placeholder="Ej: ¿Cuáles son las políticas de pensión?",
-                height=80,
-                label_visibility="collapsed",
-                key="input_chat"
-            )
-        
-        with col_button:
-            submit = st.form_submit_button("📤 Enviar", use_container_width=True)
-        
-        if submit and user_input.strip():
-            logger.info(f"📨 Mensaje de {st.session_state.usuario}: {user_input[:50]}")
-            
-            with st.spinner("⏳ Procesando pregunta..."):
-                try:
-                    respuesta = st.session_state.chat_processor.procesar_mensaje(
-                        mensaje=user_input,
-                        contexto={'rol': st.session_state.rol}
-                    )
-                    
-                    if respuesta['exitoso']:
-                        st.success("✅ Respuesta generada")
-                        # No agregamos manualmente: procesar_mensaje() ya guarda
-                        # la respuesta en chat_processor.historial_local
-                    else:
-                        st.error(f"❌ Error: {respuesta['respuesta']}")
-                
-                except Exception as e:
-                    logger.error(f"❌ Error: {e}", exc_info=True)
-                    st.error(f"❌ Error procesando:\n{str(e)}")
-    
-    # Historial
-    st.markdown("### 📜 Historial de Conversación")
-    
-    # Leer SIEMPRE el historial vivo desde el chat_processor para evitar
-    # referencias obsoletas tras limpiar el chat
+
+    # Leer el historial vivo desde el chat_processor
     historial_actual = []
     if st.session_state.chat_processor:
         historial_actual = st.session_state.chat_processor.historial_local
-    
-    if historial_actual:
-        # Mostrar en orden inverso (más recientes primero)
-        for msg in reversed(historial_actual[-20:]):
-            with st.container():
-                col1, col2 = st.columns([0.1, 0.9])
-                
-                with col1:
-                    st.markdown("👤")
-                
-                with col2:
-                    pregunta = html.escape(str(msg['mensaje_original']))
-                    st.markdown(f"""
-<div class="chat-bubble user-bubble">
-<div class="bubble-label">Tú</div>
-<div class="bubble-text">{pregunta}</div>
-</div>
-""", unsafe_allow_html=True)
-                
-                st.divider()
-                
-                col1, col2 = st.columns([0.1, 0.9])
-                
-                with col1:
-                    st.markdown("🤖")
-                
-                with col2:
-                    if msg['exitoso']:
-                        st.markdown(
-                            '<div class="bubble-label" style="color:#667eea; '
-                            'margin-bottom:4px;">Asistente IA</div>',
-                            unsafe_allow_html=True
-                        )
-                        st.markdown(msg['respuesta'])
-                        
-                        # Mostrar fuentes como ventana de comandos / terminal
-                        if msg.get('sources'):
-                            with st.expander(f"📚 Fuentes ({len(msg['sources'])})"):
-                                for i, source in enumerate(msg['sources'], 1):
-                                    archivo = html.escape(str(source.get('archivo', 'documento')))
-                                    pagina = source.get('metadata', {}).get('page', 'N/A')
-                                    st.markdown(f"""
+
+    if not historial_actual:
+        st.caption("Escribe una pregunta abajo para comenzar la conversacion.")
+
+    # Conversacion en orden cronologico (estilo ChatGPT)
+    for msg in historial_actual[-30:]:
+        with st.chat_message("user", avatar="🧑"):
+            st.markdown(str(msg.get('mensaje_original', '')))
+
+        with st.chat_message("assistant", avatar="🤖"):
+            if msg.get('exitoso'):
+                st.markdown(msg.get('respuesta', ''))
+
+                # Fuentes estilo ventana de comandos / terminal
+                if msg.get('sources'):
+                    with st.expander(f"📚 Fuentes ({len(msg['sources'])})"):
+                        for i, source in enumerate(msg['sources'], 1):
+                            archivo = html.escape(str(source.get('archivo', 'documento')))
+                            pagina = source.get('metadata', {}).get('page', 'N/A')
+                            st.markdown(f"""
 <div class="terminal-bar">
 <span class="dot red"></span>
 <span class="dot yellow"></span>
@@ -781,14 +724,26 @@ def mostrar_chat():
 <span class="title">fuente {i} &mdash; {archivo} &middot; pag. {pagina}</span>
 </div>
 """, unsafe_allow_html=True)
-                                    st.code(source['contenido'][:400], language="text")
-                    else:
-                        st.error(msg['respuesta'])
-                
-                st.caption(f"⏱️ {msg['timestamp'][:19]}")
-                st.divider()
-    else:
-        st.info("💭 Sin historial aún. ¡Haz una pregunta!")
+                            st.code(source['contenido'][:400], language="text")
+            else:
+                st.error(msg.get('respuesta', 'Error'))
+
+    # Entrada fija abajo (estilo ChatGPT)
+    user_input = st.chat_input("Escribe tu pregunta...")
+    if user_input and user_input.strip():
+        logger.info(f"📨 Mensaje de {st.session_state.usuario}: {user_input[:50]}")
+        with st.spinner("Pensando..."):
+            try:
+                st.session_state.chat_processor.procesar_mensaje(
+                    mensaje=user_input,
+                    contexto={'rol': st.session_state.rol}
+                )
+            except Exception as e:
+                logger.error(f"❌ Error: {e}", exc_info=True)
+                st.error(f"❌ Error procesando: {str(e)}")
+                return
+        st.rerun()
+
 
 def mostrar_estadisticas():
     """Mostrar estadísticas"""
