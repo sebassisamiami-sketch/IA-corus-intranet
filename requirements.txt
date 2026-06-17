@@ -2,13 +2,13 @@
 streamlit==1.28.0
 python-dotenv==1.0.0
 
-# OpenAI - VERSION COMPATIBLE
+# OpenAI - VERSION ANTIGUA
 openai==0.28.1
 
-# LangChain - VERSIONES COMPATIBLES ENTRE SÍ
+# LangChain - VERSIONES QUE SÍ FUNCIONAN JUNTAS
 langchain==0.0.354
-langchain-community==0.0.38
-langchain-core==0.1.52
+langchain-community==0.0.20
+langchain-core==0.1.23
 
 # Vector Store
 chromadb==0.4.15
