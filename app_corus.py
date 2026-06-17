@@ -639,15 +639,17 @@ def pantalla_login():
                 border-color: #0067b8 !important;
                 box-shadow: none !important;
             }
-            /* Botón azul Microsoft */
-            section.main .stButton button[kind="primary"] {
+            /* Botón azul Microsoft (incluye el botón del formulario de login) */
+            section.main .stButton button[kind="primary"],
+            section.main [data-testid="stFormSubmitButton"] button {
                 background: #0067b8 !important;
                 color: #ffffff !important;
                 border: none !important;
                 border-radius: 0 !important;
                 font-weight: 600;
             }
-            section.main .stButton button[kind="primary"]:hover {
+            section.main .stButton button[kind="primary"]:hover,
+            section.main [data-testid="stFormSubmitButton"] button:hover {
                 background: #005da6 !important;
                 transform: none;
                 box-shadow: none;
@@ -667,23 +669,27 @@ def pantalla_login():
             st.error("🔗 El enlace de invitación no es válido o ya caducó. "
                      "Solicita un enlace nuevo al administrador.")
         
-        # Escribir el usuario (sin lista desplegable, por seguridad)
-        usuario_input = st.text_input(
-            "Usuario",
-            key="input_usuario_login",
-            placeholder="Escribe tu usuario"
-        )
-        
-        contraseña = st.text_input(
-            "Contraseña",
-            type="password",
-            key="input_password_login"
-        )
-        
+        # Escribir el usuario y la contraseña DENTRO de un formulario,
+        # así se puede enviar con Enter (no solo con el botón).
+        with st.form("login_form"):
+            usuario_input = st.text_input(
+                "Usuario",
+                key="input_usuario_login",
+                placeholder="Escribe tu usuario"
+            )
+            contraseña = st.text_input(
+                "Contraseña",
+                type="password",
+                key="input_password_login"
+            )
+            _enviar = st.form_submit_button(
+                "Iniciar sesión", use_container_width=True, type="primary"
+            )
+
         col_login = st.container()
-        
+
         with col_login:
-            if st.button("Iniciar sesión", use_container_width=True, type="primary"):
+            if _enviar:
                 
                 # 🔒 Bloqueo temporal por intentos fallidos
                 bloqueo_hasta = st.session_state.get("bloqueo_hasta")
