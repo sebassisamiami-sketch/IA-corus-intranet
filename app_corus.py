@@ -794,7 +794,8 @@ def pantalla_principal():
                     "Estado de BD",
                     "Registros de Acceso",
                     "Estadísticas IA",
-                    "Control del Servidor"
+                    "Control del Servidor",
+                    "Video a Manual"
                 ],
                 label_visibility="collapsed",
                 key="admin_menu"
@@ -854,6 +855,8 @@ def pantalla_principal():
             mostrar_admin_estadisticas_ia()
         elif admin_opcion == "Control del Servidor":
             mostrar_admin_servidor()
+        elif admin_opcion == "Video a Manual":
+            mostrar_admin_video()
     elif opcion == "💬 Chat":
         mostrar_chat()
     elif opcion == "📊 Estadísticas":
@@ -1327,6 +1330,65 @@ def mostrar_admin_estadisticas_ia():
             st.text(f"**{key}:** {value}")
 
 # ===== MAIN =====
+def mostrar_admin_video():
+    """Panel: convertir un video en el contenido de un manual (PDF)."""
+    st.markdown("## 🎬 Video a Manual (PDF)")
+    st.caption("Sube un video o audio, la IA lo transcribe, lo resume en formato de manual "
+               "y genera un PDF descargable.")
+
+    archivo = st.file_uploader(
+        "Sube el video o audio",
+        type=["mp4", "mov", "mkv", "webm", "m4a", "mp3", "wav", "mpeg", "mpga"],
+        key="uploader_video"
+    )
+    titulo = st.text_input("Título del manual", value="Manual generado desde video",
+                           key="titulo_manual_video")
+
+    st.caption("💡 Recomendado: videos de pocos minutos. Para videos largos puede tardar más.")
+
+    if st.button("⚙️ Generar manual", type="primary", use_container_width=True):
+        if not archivo:
+            st.warning("Primero sube un archivo de video o audio.")
+            return
+        try:
+            import tempfile
+            from video_a_manual import procesar_video
+
+            sufijo = "." + archivo.name.split(".")[-1].lower()
+            with tempfile.NamedTemporaryFile(suffix=sufijo, delete=False) as tmp:
+                tmp.write(archivo.getbuffer())
+                ruta = tmp.name
+
+            with st.spinner("⏳ Procesando: extrayendo audio, transcribiendo y resumiendo..."):
+                resultado = procesar_video(ruta, titulo)
+
+            try:
+                os.remove(ruta)
+            except Exception:
+                pass
+
+            st.success("✅ Manual generado")
+
+            # Descargar PDF
+            st.download_button(
+                "⬇️ Descargar manual (PDF)",
+                data=resultado["pdf"],
+                file_name=f"{titulo.replace(' ', '_')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+
+            # Vista previa del manual
+            with st.expander("👀 Vista previa del manual", expanded=True):
+                st.markdown(resultado["manual"])
+
+            # Transcripción completa
+            with st.expander("📝 Transcripción completa"):
+                st.text(resultado["transcripcion"])
+
+        except Exception as e:
+            st.error(f"❌ Error procesando el video: {e}")
+
 def mostrar_admin_servidor():
     """Panel para cerrar/activar el servidor (modo mantenimiento)."""
     st.markdown("## 🖥️ Control del Servidor")

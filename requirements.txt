@@ -27,3 +27,7 @@ bcrypt
 
 # Copiloto de reunión - grabación de micrófono (app aparte)
 streamlit-mic-recorder
+
+
+# Video a Manual - generación de PDF
+fpdf2
