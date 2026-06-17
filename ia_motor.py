@@ -230,17 +230,30 @@ Respuesta:"""
 
             logger.info(f"🔍 Query: {pregunta[:100]}...")
 
-            # 1) Recuperar documentos relevantes
-            docs = self.vectorstore.similarity_search(pregunta, k=4)
+            # 1) Recuperar documentos relevantes (con score de distancia)
+            try:
+                docs_scored = self.vectorstore.similarity_search_with_score(pregunta, k=4)
+            except Exception:
+                docs_scored = [(d, 0.0) for d in self.vectorstore.similarity_search(pregunta, k=4)]
+            docs = [d for d, _ in docs_scored]
+            best_score = docs_scored[0][1] if docs_scored else None
+            logger.info(f"🔎 Mejor distancia: {best_score}")
 
             self.estadisticas['queries_totales'] += 1
             self.estadisticas['ultima_consulta'] = datetime.now().isoformat()
 
-            if not docs:
+            # Guarda de relevancia: si no hay coincidencia o es debil, no forzar un caso
+            UMBRAL_DISTANCIA = 0.55
+            if not docs or (best_score is not None and best_score > UMBRAL_DISTANCIA):
                 self.estadisticas['queries_exitosas'] += 1
                 return {
                     'exito': True,
-                    'respuesta': "Compañero, tras revisar la base de datos corporativa, no logré ubicar información sobre este tema.",
+                    'respuesta': (
+                        "No encontré un caso que coincida con tu consulta. "
+                        "¿Puedes indicarme el proceso? Por ejemplo: documentos en blanco, "
+                        "cambio de información, elaborar/cargar HT, error por notificación, "
+                        "pasar a cobros, validar denuncias o indicar etapa BPM."
+                    ),
                     'sources': [],
                     'modo': 'RAG',
                     'timestamp': datetime.now().isoformat()
