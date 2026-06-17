@@ -5,6 +5,15 @@ Optimizado para Streamlit Cloud
 """
 
 import streamlit as st
+
+# ===== CONFIGURACIÓN INICIAL (DEBE SER LO PRIMERO) =====
+st.set_page_config(
+    page_title="🤖 Corus Intranet Engine v2.0",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import logging
 import os
 import json
@@ -12,14 +21,6 @@ import csv
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
-
-# ===== CONFIGURACIÓN INICIAL =====
-st.set_page_config(
-    page_title="🤖 Corus Intranet Engine v2.0",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # ===== FUNCIONES DE INICIALIZACIÓN =====
 @st.cache_resource
