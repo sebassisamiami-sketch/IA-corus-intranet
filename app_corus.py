@@ -379,14 +379,26 @@ st.markdown("""
         color: #ececf1 !important;
         border-color: #3a3a3a !important;
     }
-    /* Botones del sidebar en oscuro */
+    /* Botones del sidebar: degradado gris elegante con borde sutil */
     section[data-testid="stSidebar"] .stButton button {
-        background: #2a2a2a !important;
+        background: linear-gradient(135deg, #3a3a40, #29292e) !important;
         color: #ececf1 !important;
-        border: 1px solid #3a3a3a !important;
+        border: 1px solid #3f3f46 !important;
+        border-radius: 10px !important;
+        font-weight: 500 !important;
+        transition: all .2s ease;
     }
     section[data-testid="stSidebar"] .stButton button:hover {
-        background: #343541 !important;
+        background: linear-gradient(135deg, #45454c, #313137) !important;
+        border-color: #8ab4f8 !important;
+        transform: translateY(-1px);
+    }
+
+    /* Ocultar el botón "Ver pantalla completa" de las imágenes/logos */
+    button[title="View fullscreen"],
+    [data-testid="StyledFullScreenButton"],
+    [data-testid="StyledFullScreenButton"] button {
+        display: none !important;
     }
     
     /* Cards */
@@ -797,7 +809,7 @@ def pantalla_principal():
         st.markdown('<div class="side-label">Navegación</div>', unsafe_allow_html=True)
         opcion = st.radio(
             "Navegación",
-            ["💬 Chat", "📊 Estadísticas"],
+            ["Chat", "Estadísticas"],
             label_visibility="collapsed",
             key="menu_principal"
         )
@@ -832,14 +844,14 @@ def pantalla_principal():
         col_sesion1, col_sesion2 = st.columns(2)
         
         with col_sesion1:
-            if st.button("🗑️ Limpiar Chat", use_container_width=True):
+            if st.button("Limpiar chat", use_container_width=True):
                 st.session_state.chat_processor.limpiar_historial()
                 st.session_state.historial = []
                 st.success("✅ Chat limpiado")
                 st.rerun()
         
         with col_sesion2:
-            if st.button("🚪 Cerrar Sesión", use_container_width=True, type="secondary"):
+            if st.button("Cerrar sesión", use_container_width=True, type="secondary"):
                 registrar_acceso(st.session_state.usuario, st.session_state.rol, "LOGOUT")
                 
                 st.session_state.autenticado = False
@@ -854,7 +866,7 @@ def pantalla_principal():
         
         # Información
         st.markdown("---")
-        st.caption(f"⏱️ Sesión iniciada: {st.session_state.inicio_sesion.strftime('%H:%M:%S')}")
+        st.caption(f"Sesión iniciada: {st.session_state.inicio_sesion.strftime('%H:%M:%S')}")
     
     # CONTENIDO PRINCIPAL
     mostrar_admin = (
@@ -878,9 +890,9 @@ def pantalla_principal():
             mostrar_admin_servidor()
         elif admin_opcion == "Video a Manual":
             mostrar_admin_video()
-    elif opcion == "💬 Chat":
+    elif opcion == "Chat":
         mostrar_chat()
-    elif opcion == "📊 Estadísticas":
+    elif opcion == "Estadísticas":
         mostrar_estadisticas()
 
 def mostrar_chat():
