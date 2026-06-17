@@ -1035,33 +1035,78 @@ def mostrar_chat():
                 else:
                     st.error(msg.get('respuesta', 'Error'))
 
+    # Adjuntar imagen (opcional) para analizar casos de BPM / Service Manager / WetMethods
+    imagen = st.file_uploader(
+        "📎 Adjuntar imagen del caso (BPM, Service Manager, WetMethods) — opcional",
+        type=["png", "jpg", "jpeg", "webp"],
+        key="img_chat"
+    )
+
     # Entrada fija abajo (estilo ChatGPT) - patron oficial, SIN st.rerun()
     user_input = st.chat_input("Escribe tu pregunta...")
     if user_input and user_input.strip():
         logger.info(f"📨 Mensaje de {st.session_state.usuario}: {user_input[:50]}")
 
-        # Mostrar la pregunta del usuario de inmediato
+        # Mostrar la pregunta del usuario de inmediato (con la imagen si la adjuntó)
         with st.chat_message("user", avatar="🧑"):
+            if imagen is not None:
+                st.image(imagen, width=300)
             st.markdown(user_input)
 
         # Generar y mostrar la respuesta del asistente
         with st.chat_message("assistant", avatar=avatar_ia):
-            with st.spinner("Pensando..."):
-                try:
-                    respuesta = st.session_state.chat_processor.procesar_mensaje(
-                        mensaje=user_input,
-                        contexto={'rol': st.session_state.rol}
-                    )
-                except Exception as e:
-                    logger.error(f"❌ Error: {e}", exc_info=True)
-                    st.error(f"❌ Error procesando: {str(e)}")
-                    return
-
-            if respuesta.get('exitoso'):
-                st.markdown(respuesta.get('respuesta', ''))
-                _render_fuentes(respuesta.get('sources'))
+            if imagen is not None:
+                # ----- Caso con IMAGEN (análisis de visión) -----
+                with st.spinner("Analizando la imagen..."):
+                    try:
+                        from vision_chat import analizar_imagen
+                        # Grounding opcional con la documentación
+                        ctx_doc = ""
+                        try:
+                            motor = st.session_state.motor_ia
+                            if motor and getattr(motor, "vectorstore", None) and user_input.strip():
+                                ds = motor.vectorstore.similarity_search(user_input, k=2)
+                                ctx_doc = "\n\n".join(d.page_content for d in ds)
+                        except Exception:
+                            ctx_doc = ""
+                        r = analizar_imagen(
+                            user_input, imagen.getvalue(),
+                            getattr(imagen, "type", "image/png"), ctx_doc
+                        )
+                        st.markdown(r)
+                        # Guardar en el historial (como texto, para continuidad)
+                        try:
+                            st.session_state.chat_processor.historial_local.append({
+                                "exitoso": True,
+                                "mensaje_original": user_input + "  [imagen adjunta]",
+                                "respuesta": r, "sources": [],
+                                "timestamp": datetime.now().isoformat(),
+                                "usuario": st.session_state.usuario,
+                                "rol": st.session_state.rol, "modo": "VISION",
+                            })
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        logger.error(f"❌ Error visión: {e}", exc_info=True)
+                        st.error(f"❌ Error analizando la imagen: {e}")
             else:
-                st.error(respuesta.get('respuesta', 'Error'))
+                # ----- Caso solo TEXTO (RAG normal) -----
+                with st.spinner("Pensando..."):
+                    try:
+                        respuesta = st.session_state.chat_processor.procesar_mensaje(
+                            mensaje=user_input,
+                            contexto={'rol': st.session_state.rol}
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Error: {e}", exc_info=True)
+                        st.error(f"❌ Error procesando: {str(e)}")
+                        return
+
+                if respuesta.get('exitoso'):
+                    st.markdown(respuesta.get('respuesta', ''))
+                    _render_fuentes(respuesta.get('sources'))
+                else:
+                    st.error(respuesta.get('respuesta', 'Error'))
 
 
 def mostrar_estadisticas():
