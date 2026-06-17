@@ -80,7 +80,7 @@ def transcribir(path: str) -> str:
     for p in partes:
         try:
             with open(p, "rb") as f:
-                tr = openai.Audio.transcribe("whisper-1", f)
+                tr = openai.Audio.transcribe("whisper-1", f, language="es")
             textos.append(tr["text"] if isinstance(tr, dict) else getattr(tr, "text", ""))
         except Exception as e:
             logger.error(f"Error transcribiendo {p}: {e}")
@@ -88,14 +88,19 @@ def transcribir(path: str) -> str:
     return "\n".join(textos).strip()
 
 
-def _gpt(mensajes, max_tokens=1500, temp=0.2):
+def _gpt(mensajes, max_tokens=1500, temp=0.2, model="gpt-4o-mini"):
+    """Llama al modelo. Usa gpt-4o-mini (más detallado) con respaldo a gpt-3.5-turbo."""
     openai.api_key = _api_key()
-    resp = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        temperature=temp,
-        max_tokens=max_tokens,
-        messages=mensajes,
-    )
+    try:
+        resp = openai.ChatCompletion.create(
+            model=model, temperature=temp, max_tokens=max_tokens, messages=mensajes,
+        )
+    except Exception as e:
+        logger.warning(f"Modelo {model} no disponible ({e}); usando gpt-3.5-turbo")
+        resp = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo", temperature=temp,
+            max_tokens=min(max_tokens, 4000), messages=mensajes,
+        )
     return resp["choices"][0]["message"]["content"].strip()
 
 
@@ -111,27 +116,36 @@ def _resumen_parcial(texto: str) -> str:
 
 def _manual_final(texto: str, titulo: str) -> str:
     instruccion = (
-        "Eres un redactor técnico experto. A partir de la TRANSCRIPCIÓN de un video donde se "
-        "explica un proceso, redacta un MANUAL DE PROCESO COMPLETO y DETALLADO en español.\n\n"
-        "Estructura obligatoria (desarrolla CADA sección al máximo detalle):\n"
-        "TÍTULO\n"
-        "OBJETIVO: qué se logra con el proceso.\n"
-        "REQUISITOS PREVIOS: accesos, datos, sistemas o herramientas mencionados.\n"
-        "PASOS: enumera TODOS los pasos en orden (1, 2, 3...), de forma clara y detallada. "
-        "Incluye nombres de pantallas, botones, campos, rutas, consultas o datos exactos que "
-        "aparezcan. NO omitas pasos.\n"
-        "NOTAS Y ADVERTENCIAS: validaciones, errores comunes o recomendaciones.\n"
-        "RESUMEN: breve.\n\n"
-        "Reglas:\n"
-        "- Básate en la transcripción, pero ORDENA y REDACTA con claridad (puedes reformular).\n"
-        "- NO dejes secciones vacías: si hay información relacionada en la transcripción, inclúyela.\n"
-        "- Si algo no se menciona, escribe 'No se especifica en el video' en esa sección.\n"
-        "- Sé extenso y útil; este texto será un manual oficial."
+        "Eres un redactor técnico experto en documentación de procesos. A partir de la "
+        "TRANSCRIPCIÓN de un video donde se explica un caso/proceso, redacta un MANUAL "
+        "COMPLETO, EXTENSO y DETALLADO en español.\n\n"
+        f"El NOMBRE DEL CASO es: \"{titulo}\". Úsalo como referencia del proceso.\n\n"
+        "Estructura obligatoria (desarrolla CADA sección al máximo, sin dejar nada vacío):\n\n"
+        f"# {titulo}\n"
+        "## Caso / Proceso\n"
+        "Explica de qué caso o proceso trata (1-2 frases).\n"
+        "## Objetivo\n"
+        "Qué se logra al completar el proceso.\n"
+        "## Requisitos previos\n"
+        "Accesos, sistemas, datos o herramientas necesarios (los que se mencionen).\n"
+        "## Pasos detallados\n"
+        "Enumera TODOS los pasos en orden (1, 2, 3, ...). Para cada paso explica QUÉ se hace, "
+        "DÓNDE (pantalla, menú, botón, campo) y CON QUÉ DATOS. Incluye consultas, rutas o valores "
+        "exactos que aparezcan. Sé minucioso: es mejor sobrar que faltar.\n"
+        "## Notas y advertencias\n"
+        "Validaciones, errores comunes, recomendaciones.\n"
+        "## Resumen\n"
+        "Resumen breve del proceso.\n\n"
+        "REGLAS:\n"
+        "- Usa TODA la información de la transcripción; reordénala y redáctala con claridad.\n"
+        "- NO dejes secciones vacías. Si algo no se menciona, escribe 'No se especifica en el video'.\n"
+        "- Desarrolla los pasos con frases completas, no en telegrama.\n"
+        "- Es un documento oficial: sé profesional, claro y EXTENSO."
     )
     return _gpt([
         {"role": "system", "content": instruccion},
-        {"role": "user", "content": f"Título sugerido: {titulo}\n\nTRANSCRIPCIÓN / CONTENIDO:\n{texto}"},
-    ], max_tokens=2200, temp=0.35)
+        {"role": "user", "content": f"TRANSCRIPCIÓN DEL VIDEO:\n{texto}"},
+    ], max_tokens=3500, temp=0.4)
 
 
 def resumir_a_manual(transcripcion: str, titulo: str) -> str:
@@ -140,7 +154,7 @@ def resumir_a_manual(transcripcion: str, titulo: str) -> str:
     if not transcripcion:
         return "No se obtuvo transcripción del video."
 
-    max_chars = 12000
+    max_chars = 40000  # gpt-4o-mini admite contexto grande -> usamos toda la transcripción
     if len(transcripcion) <= max_chars:
         return _manual_final(transcripcion, titulo)
 
