@@ -146,8 +146,16 @@ def resumir_a_manual(transcripcion: str, titulo: str) -> str:
 
 
 def _latin(texto: str) -> str:
-    """Hace el texto compatible con las fuentes core de FPDF (latin-1)."""
-    return texto.encode("latin-1", "replace").decode("latin-1")
+    """Compatibiliza con fuentes core (latin-1) y corta palabras larguísimas
+    para evitar el error 'Not enough horizontal space' de FPDF."""
+    t = (texto or "").encode("latin-1", "replace").decode("latin-1")
+    fijas = []
+    for w in t.split(" "):
+        while len(w) > 70:
+            fijas.append(w[:70])
+            w = w[70:]
+        fijas.append(w)
+    return " ".join(fijas)
 
 
 def generar_pdf(titulo: str, contenido: str) -> bytes:
@@ -174,22 +182,26 @@ def generar_pdf(titulo: str, contenido: str) -> bytes:
         if not texto:
             pdf.ln(3)
             continue
-        # Encabezado de sección (línea corta en mayúsculas o que empieza con #)
-        es_titulo = bruto.startswith("#") or (bruto.isupper() and len(bruto) < 60)
-        if es_titulo:
-            pdf.ln(2)
-            pdf.set_font("Helvetica", "B", 13)
-            pdf.set_text_color(30, 30, 30)
-            pdf.multi_cell(0, 7, texto)
-            pdf.ln(1)
-        elif bruto.lstrip().startswith(("-", "*", "•")):
-            pdf.set_font("Helvetica", "", 11)
-            pdf.set_text_color(50, 50, 50)
-            pdf.multi_cell(0, 6, "  -  " + texto.lstrip("-*• ").strip())
-        else:
-            pdf.set_font("Helvetica", "", 11)
-            pdf.set_text_color(50, 50, 50)
-            pdf.multi_cell(0, 6, texto)
+        try:
+            # Encabezado de sección (línea corta en mayúsculas o que empieza con #)
+            es_titulo = bruto.startswith("#") or (bruto.isupper() and len(bruto) < 60)
+            if es_titulo:
+                pdf.ln(2)
+                pdf.set_font("Helvetica", "B", 13)
+                pdf.set_text_color(30, 30, 30)
+                pdf.multi_cell(0, 7, texto)
+                pdf.ln(1)
+            elif bruto.lstrip().startswith(("-", "*", "•")):
+                pdf.set_font("Helvetica", "", 11)
+                pdf.set_text_color(50, 50, 50)
+                pdf.multi_cell(0, 6, "  -  " + texto.lstrip("-*• ").strip())
+            else:
+                pdf.set_font("Helvetica", "", 11)
+                pdf.set_text_color(50, 50, 50)
+                pdf.multi_cell(0, 6, texto)
+        except Exception:
+            # Si una línea no se puede renderizar, la omitimos para no romper el PDF
+            continue
 
     salida = pdf.output(dest="S")
     if isinstance(salida, str):
