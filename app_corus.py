@@ -846,7 +846,7 @@ def mostrar_chat():
 <span class="title">fuente {i} &mdash; {archivo} &middot; pag. {pagina}</span>
 </div>
 """, unsafe_allow_html=True)
-                st.code(source['contenido'][:400], language="text")
+                st.code(source['contenido'], language="text")
 
     # Leer el historial vivo desde el chat_processor
     historial_actual = []
