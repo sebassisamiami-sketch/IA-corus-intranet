@@ -815,7 +815,10 @@ def mostrar_chat():
             fill: #ffffff !important;
             color: #ffffff !important;
         }
-        [data-testid="stChatInput"] textarea {
+        [data-testid="stChatInput"] textarea,
+        textarea[data-testid="stChatInputTextArea"],
+        [data-testid="stChatInput"] [data-baseweb="textarea"] textarea,
+        section.main [data-testid="stChatInput"] textarea {
             background: transparent !important;
             color: #ffffff !important;
             -webkit-text-fill-color: #ffffff !important;
@@ -825,7 +828,8 @@ def mostrar_chat():
             line-height: 1.5 !important;
             padding: 6px 8px !important;
         }
-        [data-testid="stChatInput"] textarea::placeholder {
+        [data-testid="stChatInput"] textarea::placeholder,
+        textarea[data-testid="stChatInputTextArea"]::placeholder {
             color: #9a9aa8 !important;
             -webkit-text-fill-color: #9a9aa8 !important;
         }
