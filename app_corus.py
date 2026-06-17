@@ -541,8 +541,6 @@ def mostrar_chat():
                         st.session_state.historial.append(respuesta)
                     else:
                         st.error(f"❌ Error: {respuesta['respuesta']}")
-                    
-                    st.rerun()
                 
                 except Exception as e:
                     logger.error(f"❌ Error: {e}", exc_info=True)
