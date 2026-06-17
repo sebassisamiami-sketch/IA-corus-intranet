@@ -203,9 +203,9 @@ Respuesta:"""
     def query(self, pregunta: str, contexto: Dict = None) -> Dict[str, Any]:
         """Ejecutar query al motor IA.
 
-        Para EVITAR mezclar casos:
-        - Cada pregunta es independiente (sin memoria de conversacion).
-        - La respuesta usa SOLO el documento mas relevante (no combina PDFs).
+        - No mezcla casos: cada respuesta usa SOLO el documento elegido.
+        - Continuidad: ante preguntas de seguimiento ("paso a paso", "mas detalle"),
+          mantiene el caso anterior en lugar de saltar a otro documento.
         """
         try:
             if self.estado != "listo":
@@ -244,26 +244,7 @@ Respuesta:"""
             self.estadisticas['queries_totales'] += 1
             self.estadisticas['ultima_consulta'] = datetime.now().isoformat()
 
-            # Guarda de relevancia: si no hay coincidencia o es debil, no forzar un caso
-            UMBRAL_DISTANCIA = 0.55
-            if not docs or (best_score is not None and best_score > UMBRAL_DISTANCIA):
-                self.estadisticas['queries_exitosas'] += 1
-                return {
-                    'exito': True,
-                    'respuesta': (
-                        "No encontré un caso que coincida con tu consulta. "
-                        "¿Puedes indicarme el proceso? Por ejemplo: documentos en blanco, "
-                        "cambio de información, elaborar/cargar HT, error por notificación, "
-                        "pasar a cobros, validar denuncias o indicar etapa BPM."
-                    ),
-                    'sources': [],
-                    'modo': 'RAG',
-                    'timestamp': datetime.now().isoformat()
-                }
-
-            # 2) 🔒 Elegir el documento correcto combinando semántica + título
-            #    Evita confundir casos parecidos (p. ej. "cambio de información"
-            #    vs "documentos en blanco", que comparten SQL y vocabulario)
+            # 2) Normalizacion + deteccion de pregunta de seguimiento
             def _norm(s):
                 s = unicodedata.normalize('NFD', str(s).lower())
                 return ''.join(c for c in s if unicodedata.category(c) != 'Mn')
@@ -273,6 +254,16 @@ Respuesta:"""
                     "una", "para", "que", "y", "o", "con", "se", "su", "al",
                     "por", "mi", "es", "cual", "cuales", "hacer", "puedo"}
 
+            ultima_fuente = (contexto or {}).get('ultima_fuente')
+            followup_kw = [
+                "paso a paso", "pasos", "detalle", "detalla", "explica", "explicame",
+                "continua", "amplia", "mas informacion", "mas detalle", "ejemplo",
+                "y luego", "entonces", "completo", "resumen", "dime mas", "mas pasos",
+                "y como", "ese caso", "lo anterior"
+            ]
+            es_followup = any(k in q_norm for k in followup_kw)
+
+            # 3) Mapa de fuentes/titulos del retrieval + re-ranking por titulo
             orden_fuentes = []
             titulo_por_fuente = {}
             for d in docs:
@@ -285,21 +276,45 @@ Respuesta:"""
                 titulo = _norm(titulo_por_fuente.get(src, src))
                 palabras = [w for w in re.findall(r"\w+", titulo)
                             if len(w) > 3 and w not in STOP]
-                # cuenta cuántas palabras del título (por prefijo) están en la pregunta
                 return sum(1 for w in palabras if w[:4] in q_norm)
 
             if orden_fuentes:
-                # Mayor coincidencia de título; empate -> mejor relevancia semántica
                 fuente_principal = max(
                     orden_fuentes,
                     key=lambda s: (_title_score(s), -orden_fuentes.index(s))
                 )
             else:
-                fuente_principal = docs[0].metadata.get('source')
+                fuente_principal = docs[0].metadata.get('source') if docs else None
+
+            score_elegido = _title_score(fuente_principal) if fuente_principal else 0
+            n_palabras = len(q_norm.split())
+            es_seguimiento = es_followup or (n_palabras <= 4 and score_elegido == 0)
+
+            if ultima_fuente and es_seguimiento:
+                # Pregunta de seguimiento -> mantener el MISMO caso (no saltar)
+                logger.info(f"↪️ Seguimiento: mantengo el caso anterior ({ultima_fuente})")
+                fuente_principal = ultima_fuente
+            else:
+                # Guarda de relevancia solo para preguntas NUEVAS
+                if not docs or (best_score is not None and best_score > 0.55):
+                    self.estadisticas['queries_exitosas'] += 1
+                    return {
+                        'exito': True,
+                        'respuesta': (
+                            "No encontré un caso que coincida con tu consulta. "
+                            "¿Puedes indicarme el proceso? Por ejemplo: documentos en blanco, "
+                            "cambio de información, elaborar/cargar HT, error por notificación, "
+                            "pasar a cobros, validar denuncias o indicar etapa BPM."
+                        ),
+                        'sources': [],
+                        'fuente': ultima_fuente,
+                        'modo': 'RAG',
+                        'timestamp': datetime.now().isoformat()
+                    }
+
             logger.info(f"📄 Documento elegido: {fuente_principal}")
 
-            # 3) Traer TODOS los fragmentos de ese documento para una
-            #    respuesta COMPLETA (ordenados por chunk_id)
+            # 4) Traer TODOS los fragmentos de ese documento (respuesta completa)
             chunks_doc = []
             try:
                 data = self.vectorstore._collection.get(
@@ -320,7 +335,7 @@ Respuesta:"""
                     if d.metadata.get('source') == fuente_principal
                 ]
 
-            # 4) Construir contexto completo (con tope de seguridad de tokens)
+            # 5) Construir contexto completo (tope de seguridad de tokens)
             contexto_texto = "\n\n".join(t for t, _ in chunks_doc)
             if len(contexto_texto) > 12000:
                 contexto_texto = contexto_texto[:12000]
@@ -328,7 +343,7 @@ Respuesta:"""
                 context=contexto_texto, question=pregunta
             )
 
-            # 5) Generar respuesta
+            # 6) Generar respuesta
             respuesta_llm = self.llm.invoke([HumanMessage(content=prompt_final)])
             self.estadisticas['queries_exitosas'] += 1
 
@@ -345,6 +360,7 @@ Respuesta:"""
                 'exito': True,
                 'respuesta': respuesta_llm.content,
                 'sources': sources,
+                'fuente': fuente_principal,
                 'modo': 'RAG',
                 'timestamp': datetime.now().isoformat()
             }
