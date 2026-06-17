@@ -983,6 +983,33 @@ def mostrar_chat():
         }
         section.main [data-testid="stExpander"] summary,
         section.main [data-testid="stExpander"] summary * { color: #ececf1 !important; }
+
+        /* Caja de entrada un poco más gruesa */
+        [data-testid="stChatInput"] { padding: 10px 16px !important; }
+        [data-testid="stChatInput"] textarea {
+            min-height: 54px !important;
+            padding-top: 10px !important;
+        }
+
+        /* Botón de adjuntar compacto (estilo clip), no una caja grande */
+        [data-testid="stFileUploader"] { margin-bottom: 8px; }
+        [data-testid="stFileUploader"] label { color: #9a9aa8 !important; font-size: .8rem; }
+        [data-testid="stFileUploader"] [data-testid="stFileUploaderDropzoneInstructions"] {
+            display: none !important;
+        }
+        [data-testid="stFileUploader"] section {
+            padding: 6px 10px !important;
+            min-height: 0 !important;
+            background: #2f2f2f !important;
+            border: 1px solid #4d4f5c !important;
+            border-radius: 12px !important;
+        }
+        [data-testid="stFileUploader"] section button {
+            background: linear-gradient(135deg, #8ab4f8, #4a7fe0) !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 8px !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -1037,7 +1064,7 @@ def mostrar_chat():
 
     # Adjuntar imagen (opcional) para analizar casos de BPM / Service Manager / WetMethods
     imagen = st.file_uploader(
-        "📎 Adjuntar imagen del caso (BPM, Service Manager, WetMethods) — opcional",
+        "📎 Adjuntar imagen del caso (opcional)",
         type=["png", "jpg", "jpeg", "webp"],
         key="img_chat"
     )
