@@ -1,11 +1,28 @@
+# ARCHIVO NO USADO EN PRODUCCIÓN - Solo para debugging local
+# Comentado para evitar dependencias de sentence-transformers
+
+"""
 import os
 import warnings
-from langchain_huggingface import HuggingFaceEmbeddings
+from sentence_transformers import SentenceTransformer
 from langchain_community.vectorstores import Chroma
+from langchain.embeddings.base import Embeddings
+from typing import List
 
 # Apagar advertencias molestas de paralelismo en la terminal
 warnings.filterwarnings("ignore")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+class SentenceTransformerEmbeddings(Embeddings):
+    """Wrapper para usar sentence-transformers con LangChain"""
+    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+        self.model = SentenceTransformer(model_name)
+    
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self.model.encode(texts).tolist()
+    
+    def embed_query(self, text: str) -> List[float]:
+        return self.model.encode([text])[0].tolist()
 
 class QAInspector:
     """Herramienta de depuración y auditoría para la base de datos vectorial de Corus."""
@@ -24,7 +41,7 @@ class QAInspector:
             
         print("⏳ Conectando con el motor de embeddings local...")
         try:
-            self.embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+            self.embeddings = SentenceTransformerEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
             self.vector_db = Chroma(persist_directory=self.carpeta_db, embedding_function=self.embeddings)
             
             # Mostrar estadísticas rápidas de salud de la BD

@@ -69,7 +69,11 @@ class ChatProcessor:
             """
         }
         
-        return prompts_rol.get(self.rol, "") + f"\n\nPregunta: {mensaje}"
+        # Enviamos la pregunta LIMPIA al motor para que la búsqueda en los
+        # documentos sea precisa. El rol y el tono se controlan en el prompt
+        # del motor (ia_motor.py), no aquí.
+        _ = prompts_rol  # se mantiene por compatibilidad
+        return mensaje
     
     def procesar_mensaje(self, mensaje: str, contexto: Dict = None) -> Dict[str, Any]:
         """Procesar mensaje del usuario y gestionar salidas tempranas"""
@@ -115,6 +119,35 @@ class ChatProcessor:
                 self._guardar_sesion()
                 return respuesta_cierre
             
+            # 👋 FILTRO DE SALUDOS / CHARLA (no consume RAG)
+            frases_saludo = [
+                "hola", "buenas", "buenos dias", "buenos días", "buenas tardes",
+                "buenas noches", "hey", "que tal", "qué tal", "como estas",
+                "cómo estás", "como vas", "saludos", "buen dia", "buen día"
+            ]
+            if (any(clean_msg == f or clean_msg.startswith(f) for f in frases_saludo)
+                    and len(clean_msg) <= 30):
+                respuesta_saludo = {
+                    'exitoso': True,
+                    'mensaje_original': mensaje,
+                    'respuesta': (
+                        "👋 ¡Hola! Soy el asistente de procesos de Corus. "
+                        "Puedo ayudarte con casos como **elaborar/cargar HT**, "
+                        "**documentos en blanco**, **cambio de información**, "
+                        "**error por notificación**, **pasar a cobros**, "
+                        "**validar denuncias** e **indicar etapa BPM**.\n\n"
+                        "¿Sobre cuál necesitas ayuda?"
+                    ),
+                    'sources': [],
+                    'timestamp': datetime.now().isoformat(),
+                    'usuario': self.usuario,
+                    'rol': self.rol,
+                    'modo': 'SISTEMA_LOCAL'
+                }
+                self.historial_local.append(respuesta_saludo)
+                self._guardar_sesion()
+                return respuesta_saludo
+
             logger.info(f"📨 Procesando mensaje de {self.usuario}: {mensaje[:50]}...")
             
             # Enriquecer prompt

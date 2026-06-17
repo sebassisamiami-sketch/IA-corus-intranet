@@ -7,10 +7,13 @@ Implementa patrón Singleton con inicialización robusta y prevención de alucin
 import logging
 import os
 import json
+import re
+import unicodedata
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from pathlib import Path
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain.chat_models import ChatOpenAI
+from langchain.embeddings import OpenAIEmbeddings
 from langchain.memory import ConversationBufferMemory
 from langchain_community.vectorstores import Chroma
 from langchain.chains import ConversationalRetrievalChain
@@ -57,6 +60,7 @@ class CorusIntranetEngine:
         self.llm = None
         self.memory = None
         self.chain = None
+        self.prompt_str = ""
         self.estado = "inicializando"
         self.estadisticas = {
             "queries_totales": 0,
@@ -87,9 +91,9 @@ class CorusIntranetEngine:
         """Crear embeddings de OpenAI"""
         logger.info("🔄 Creando embeddings...")
         try:
+            from langchain.embeddings import OpenAIEmbeddings
             self.embeddings = OpenAIEmbeddings(
-                api_key=self.api_key,
-                model="text-embedding-3-small"
+                openai_api_key=self.api_key
             )
             logger.info("✅ Embeddings creados")
         except Exception as e:
@@ -120,12 +124,15 @@ class CorusIntranetEngine:
         """Crear instancia de GPT-4o-mini"""
         logger.info("🔄 Creando LLM...")
         try:
+            import openai
+            openai.api_key = self.api_key
+            
             self.llm = ChatOpenAI(
-                api_key=self.api_key,
-                model="gpt-4o-mini",
-                temperature=0.0, # Bajamos temperatura para procesos exactos
-                max_tokens=2048,
-                request_timeout=60
+                openai_api_key=self.api_key,
+                model_name="gpt-3.5-turbo",
+                temperature=0.0,
+                max_tokens=2048,  # Respuestas mas completas
+                request_timeout=90
             )
             logger.info("✅ LLM creado")
         except Exception as e:
@@ -155,22 +162,29 @@ class CorusIntranetEngine:
             if self.vectorstore and self.llm:
                 # 🚨 Prompt personalizado para evitar alucinaciones
                 prompt_template = """Eres un Consultor y Analista de Procesos Senior en Corus.
-Tu misión es resolver la duda técnica del usuario basándote EXCLUSIVAMENTE en la documentación provista.
-Si no encuentras la respuesta exacta en los fragmentos extraídos, debes decir honestamente: "Compañero, tras revisar la base de datos corporativa, no logré ubicar el procedimiento explícito para este escenario." NO inventes información ni asumas pasos que no estén en el texto.
+Responde la consulta del usuario utilizando la documentación interna que aparece abajo.
 
-Documentos oficiales extraídos:
+Instrucciones:
+- Construye una respuesta clara, completa y bien estructurada (pasos numerados, negritas y, si aparecen en el texto, las consultas SQL exactas).
+- Usa la información de los documentos aunque sea parcial; siempre ofrece la mejor respuesta posible con lo que haya disponible. NO te disculpes ni digas que no encontraste el procedimiento.
+- No inventes datos, pasos ni consultas que no aparezcan en la documentación.
+- Responde directamente, sin saludos ("Hola") ni despedidas.
+
+Documentación interna:
 {context}
 
-Pregunta del usuario: {question}
-Respuesta experta (usa listas, negritas y formato claro para el analista):"""
+Consulta: {question}
+
+Respuesta:"""
                 
+                self.prompt_str = prompt_template
                 PROMPT = PromptTemplate(
                     template=prompt_template, input_variables=["context", "question"]
                 )
 
                 self.chain = ConversationalRetrievalChain.from_llm(
                     llm=self.llm,
-                    retriever=self.vectorstore.as_retriever(search_kwargs={"k": 6}),
+                    retriever=self.vectorstore.as_retriever(search_kwargs={"k": 3}),  # Reducido de 6 a 3
                     memory=self.memory,
                     return_source_documents=True,
                     combine_docs_chain_kwargs={"prompt": PROMPT},
@@ -187,7 +201,12 @@ Respuesta experta (usa listas, negritas y formato claro para el analista):"""
             self.chain = None
     
     def query(self, pregunta: str, contexto: Dict = None) -> Dict[str, Any]:
-        """Ejecutar query al motor IA"""
+        """Ejecutar query al motor IA.
+
+        Para EVITAR mezclar casos:
+        - Cada pregunta es independiente (sin memoria de conversacion).
+        - La respuesta usa SOLO el documento mas relevante (no combina PDFs).
+        """
         try:
             if self.estado != "listo":
                 return {
@@ -197,15 +216,12 @@ Respuesta experta (usa listas, negritas y formato claro para el analista):"""
                     'error': "SISTEMA_NO_LISTO",
                     'timestamp': datetime.now().isoformat()
                 }
-            
-            if not self.chain:
-                logger.warning("⚠️ Chain no disponible, usando LLM directo")
-                respuesta_llm = self.llm.invoke([
-                    HumanMessage(content=pregunta)
-                ])
-                
+
+            # Sin vectorstore -> LLM directo (fallback)
+            if not self.vectorstore:
+                logger.warning("⚠️ Vectorstore no disponible, usando LLM directo")
+                respuesta_llm = self.llm.invoke([HumanMessage(content=pregunta)])
                 self.estadisticas['queries_exitosas'] += 1
-                
                 return {
                     'exito': True,
                     'respuesta': respuesta_llm.content,
@@ -213,41 +229,130 @@ Respuesta experta (usa listas, negritas y formato claro para el analista):"""
                     'modo': 'LLM_DIRECTO',
                     'timestamp': datetime.now().isoformat()
                 }
-            
+
             logger.info(f"🔍 Query: {pregunta[:100]}...")
-            
-            resultado = self.chain.invoke({
-                "question": pregunta,
-                "chat_history": self.memory.buffer
-            })
-            
+
+            # 1) Recuperar documentos relevantes (con score de distancia)
+            try:
+                docs_scored = self.vectorstore.similarity_search_with_score(pregunta, k=6)
+            except Exception:
+                docs_scored = [(d, 0.0) for d in self.vectorstore.similarity_search(pregunta, k=6)]
+            docs = [d for d, _ in docs_scored]
+            best_score = docs_scored[0][1] if docs_scored else None
+            logger.info(f"🔎 Mejor distancia: {best_score}")
+
             self.estadisticas['queries_totales'] += 1
-            self.estadisticas['queries_exitosas'] += 1
             self.estadisticas['ultima_consulta'] = datetime.now().isoformat()
-            
-            sources = []
-            if resultado.get('source_documents'):
-                sources = [
-                    {
-                        'contenido': doc.page_content[:500],
-                        'metadata': doc.metadata,
-                        'archivo': doc.metadata.get('source', 'desconocido')
-                    }
-                    for doc in resultado['source_documents'][:3]
+
+            # Guarda de relevancia: si no hay coincidencia o es debil, no forzar un caso
+            UMBRAL_DISTANCIA = 0.55
+            if not docs or (best_score is not None and best_score > UMBRAL_DISTANCIA):
+                self.estadisticas['queries_exitosas'] += 1
+                return {
+                    'exito': True,
+                    'respuesta': (
+                        "No encontré un caso que coincida con tu consulta. "
+                        "¿Puedes indicarme el proceso? Por ejemplo: documentos en blanco, "
+                        "cambio de información, elaborar/cargar HT, error por notificación, "
+                        "pasar a cobros, validar denuncias o indicar etapa BPM."
+                    ),
+                    'sources': [],
+                    'modo': 'RAG',
+                    'timestamp': datetime.now().isoformat()
+                }
+
+            # 2) 🔒 Elegir el documento correcto combinando semántica + título
+            #    Evita confundir casos parecidos (p. ej. "cambio de información"
+            #    vs "documentos en blanco", que comparten SQL y vocabulario)
+            def _norm(s):
+                s = unicodedata.normalize('NFD', str(s).lower())
+                return ''.join(c for c in s if unicodedata.category(c) != 'Mn')
+
+            q_norm = _norm(pregunta)
+            STOP = {"como", "el", "la", "los", "las", "de", "del", "en", "un",
+                    "una", "para", "que", "y", "o", "con", "se", "su", "al",
+                    "por", "mi", "es", "cual", "cuales", "hacer", "puedo"}
+
+            orden_fuentes = []
+            titulo_por_fuente = {}
+            for d in docs:
+                src = d.metadata.get('source')
+                if src and src not in titulo_por_fuente:
+                    titulo_por_fuente[src] = d.metadata.get('titulo') or src
+                    orden_fuentes.append(src)
+
+            def _title_score(src):
+                titulo = _norm(titulo_por_fuente.get(src, src))
+                palabras = [w for w in re.findall(r"\w+", titulo)
+                            if len(w) > 3 and w not in STOP]
+                # cuenta cuántas palabras del título (por prefijo) están en la pregunta
+                return sum(1 for w in palabras if w[:4] in q_norm)
+
+            if orden_fuentes:
+                # Mayor coincidencia de título; empate -> mejor relevancia semántica
+                fuente_principal = max(
+                    orden_fuentes,
+                    key=lambda s: (_title_score(s), -orden_fuentes.index(s))
+                )
+            else:
+                fuente_principal = docs[0].metadata.get('source')
+            logger.info(f"📄 Documento elegido: {fuente_principal}")
+
+            # 3) Traer TODOS los fragmentos de ese documento para una
+            #    respuesta COMPLETA (ordenados por chunk_id)
+            chunks_doc = []
+            try:
+                data = self.vectorstore._collection.get(
+                    where={"source": fuente_principal}
+                )
+                textos = data.get('documents') or []
+                metas = data.get('metadatas') or []
+                pares = list(zip(textos, metas))
+                pares.sort(key=lambda x: (x[1] or {}).get('chunk_id', 0))
+                chunks_doc = pares
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudieron traer todos los chunks: {e}")
+
+            if not chunks_doc:
+                chunks_doc = [
+                    (d.page_content, d.metadata)
+                    for d in docs
+                    if d.metadata.get('source') == fuente_principal
                 ]
-            
+
+            # 4) Construir contexto completo (con tope de seguridad de tokens)
+            contexto_texto = "\n\n".join(t for t, _ in chunks_doc)
+            if len(contexto_texto) > 12000:
+                contexto_texto = contexto_texto[:12000]
+            prompt_final = self.prompt_str.format(
+                context=contexto_texto, question=pregunta
+            )
+
+            # 5) Generar respuesta
+            respuesta_llm = self.llm.invoke([HumanMessage(content=prompt_final)])
+            self.estadisticas['queries_exitosas'] += 1
+
+            sources = [
+                {
+                    'contenido': t,
+                    'metadata': m or {},
+                    'archivo': (m or {}).get('source', 'desconocido')
+                }
+                for t, m in chunks_doc
+            ]
+
             return {
                 'exito': True,
-                'respuesta': resultado.get('answer', 'Sin respuesta'),
+                'respuesta': respuesta_llm.content,
                 'sources': sources,
                 'modo': 'RAG',
                 'timestamp': datetime.now().isoformat()
             }
-        
+
         except Exception as e:
             logger.error(f"❌ Error en query: {e}", exc_info=True)
             self.estadisticas['queries_fallidas'] += 1
-            
+
             return {
                 'exito': False,
                 'respuesta': f"❌ Error procesando pregunta: {str(e)}",
@@ -255,7 +360,8 @@ Respuesta experta (usa listas, negritas y formato claro para el analista):"""
                 'error': str(e),
                 'timestamp': datetime.now().isoformat()
             }
-    
+
+
     def obtener_estado(self) -> Dict[str, Any]:
         """Obtener estado actual del motor"""
         return {
