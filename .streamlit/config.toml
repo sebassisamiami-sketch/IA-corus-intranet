@@ -20,6 +20,11 @@ fileWatcherType = "none"
 gatherUsageStats = false
 serverAddress = "0.0.0.0"
 
+# Oculta la barra de herramientas para los visitantes (Manage app, Deploy, etc.)
+# para que la app se vea más profesional, sobre todo en el acceso de invitados.
+[client]
+toolbarMode = "minimal"
+
 [runner]
 magicEnabled = true
 fastReruns = true
