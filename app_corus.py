@@ -887,6 +887,9 @@ def mostrar_chat():
     if st.session_state.chat_processor:
         historial_actual = st.session_state.chat_processor.historial_local
 
+    # Avatar del asistente: usa el logo de Corus (con respaldo a emoji)
+    avatar_ia = str(LOGO_PATH) if LOGO_PATH.exists() else "🤖"
+
     if not historial_actual:
         # Pantalla de bienvenida centrada estilo ChatGPT
         logo_uri = _logo_data_uri()
@@ -903,7 +906,7 @@ def mostrar_chat():
         for msg in historial_actual[-30:]:
             with st.chat_message("user", avatar="🧑"):
                 st.markdown(str(msg.get('mensaje_original', '')))
-            with st.chat_message("assistant", avatar="🤖"):
+            with st.chat_message("assistant", avatar=avatar_ia):
                 if msg.get('exitoso'):
                     st.markdown(msg.get('respuesta', ''))
                     _render_fuentes(msg.get('sources'))
@@ -920,7 +923,7 @@ def mostrar_chat():
             st.markdown(user_input)
 
         # Generar y mostrar la respuesta del asistente
-        with st.chat_message("assistant", avatar="🤖"):
+        with st.chat_message("assistant", avatar=avatar_ia):
             with st.spinner("Pensando..."):
                 try:
                     respuesta = st.session_state.chat_processor.procesar_mensaje(
