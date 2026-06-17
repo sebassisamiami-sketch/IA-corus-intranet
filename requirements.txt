@@ -1,20 +1,20 @@
-# Core - Versiones PROBADAS en Streamlit Cloud
-streamlit==1.32.0
-python-dotenv==1.0.1
+# Core - ULTRA MINIMALISTAS
+streamlit==1.28.0
+python-dotenv==1.0.0
 
-# OpenAI & LangChain - ESTABLES y COMPATIBLES
-openai==1.12.0
-langchain==0.1.9
-langchain-openai==0.0.6
-langchain-community==0.0.24
+# OpenAI - DIRECTO
+openai==1.3.0
 
-# Vector Store - VERSION LIGERA
-chromadb==0.4.22
+# LangChain - MINIMO NECESARIO
+langchain==0.0.350
+langchain-community==0.0.10
 
-# PDF Processing
-pypdf==4.0.0
+# Vector Store - VERSION MUY ANTIGUA ESTABLE
+chromadb==0.4.15
 
-# Data & ML - VERSIONES LIGERAS
-pandas==2.0.3
-sentence-transformers==2.5.1
-tiktoken==0.6.0
+# PDF Processing - SIMPLE
+pypdf==3.17.0
+
+# Data - MINIMO
+pandas==2.0.0
+tiktoken==0.5.1

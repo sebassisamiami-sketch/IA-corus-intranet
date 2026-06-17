@@ -10,7 +10,8 @@ import json
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from pathlib import Path
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain.chat_models import ChatOpenAI
+from langchain.embeddings import OpenAIEmbeddings
 from langchain.memory import ConversationBufferMemory
 from langchain_community.vectorstores import Chroma
 from langchain.chains import ConversationalRetrievalChain
@@ -87,6 +88,7 @@ class CorusIntranetEngine:
         """Crear embeddings de OpenAI"""
         logger.info("🔄 Creando embeddings...")
         try:
+            from langchain.embeddings import OpenAIEmbeddings
             self.embeddings = OpenAIEmbeddings(
                 openai_api_key=self.api_key
             )

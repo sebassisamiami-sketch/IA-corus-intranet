@@ -13,7 +13,7 @@ from typing import List, Dict, Tuple, Any
 from datetime import datetime
 from pypdf import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
+from langchain.embeddings import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 
 logger = logging.getLogger(__name__)
