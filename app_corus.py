@@ -1086,7 +1086,24 @@ def mostrar_chat():
         # Pantalla de bienvenida centrada estilo ChatGPT
         logo_uri = _logo_data_uri()
         logo_html = f'<img src="{logo_uri}" class="welcome-logo"/>' if logo_uri else ''
-        st.markdown(f"""
+        if st.session_state.get("rol") == "Invitado":
+            # Bienvenida dedicada para accesos por enlace de invitación
+            st.markdown(f"""
+<div class="welcome-screen">
+{logo_html}
+<div style="display:inline-block; margin-bottom:14px; padding:5px 14px;
+            border:1px solid #3c4043; border-radius:999px; color:#8ab4f8;
+            font-size:.74rem; font-weight:600; letter-spacing:.6px;
+            background:#1e1f20;">ACCESO DE INVITADO</div>
+<h1 class="welcome-title">Bienvenido a Corus IA</h1>
+<p class="welcome-sub">Estás en una sesión temporal de invitado. Pregúntame sobre los
+procesos de parafiscales y pensiones (elaborar/cargar HT, documentos en blanco,
+cambio de información, error por notificación, pasar a cobros, validar denuncias,
+indicar etapa BPM).</p>
+</div>
+""", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
 <div class="welcome-screen">
 {logo_html}
 <h1 class="welcome-title">¿En qué puedo ayudarte?</h1>
