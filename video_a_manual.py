@@ -101,24 +101,37 @@ def _gpt(mensajes, max_tokens=1500, temp=0.2):
 
 def _resumen_parcial(texto: str) -> str:
     return _gpt([
-        {"role": "system", "content": "Resume en puntos clave (viñetas) la siguiente "
-         "parte de una transcripción. Conserva pasos, datos y términos técnicos."},
+        {"role": "system", "content": "Extrae de esta parte de la transcripción TODOS los "
+         "pasos, acciones, nombres de pantallas/botones/campos, datos y consultas que se "
+         "mencionen. Mantén el ORDEN. No resumas en exceso: conserva el detalle operativo. "
+         "Devuelve viñetas concretas."},
         {"role": "user", "content": texto},
-    ], max_tokens=700)
+    ], max_tokens=1000)
 
 
 def _manual_final(texto: str, titulo: str) -> str:
     instruccion = (
-        "Eres un redactor técnico. A partir del contenido, redacta el texto de un "
-        "MANUAL DE PROCESO claro y estructurado, con estas secciones:\n"
-        "TITULO\nOBJETIVO\nREQUISITOS PREVIOS\nPASOS (numerados y detallados)\n"
-        "NOTAS Y ADVERTENCIAS\nRESUMEN.\n"
-        "Usa lenguaje formal y conciso. NO inventes: usa solo lo que aparece en el contenido."
+        "Eres un redactor técnico experto. A partir de la TRANSCRIPCIÓN de un video donde se "
+        "explica un proceso, redacta un MANUAL DE PROCESO COMPLETO y DETALLADO en español.\n\n"
+        "Estructura obligatoria (desarrolla CADA sección al máximo detalle):\n"
+        "TÍTULO\n"
+        "OBJETIVO: qué se logra con el proceso.\n"
+        "REQUISITOS PREVIOS: accesos, datos, sistemas o herramientas mencionados.\n"
+        "PASOS: enumera TODOS los pasos en orden (1, 2, 3...), de forma clara y detallada. "
+        "Incluye nombres de pantallas, botones, campos, rutas, consultas o datos exactos que "
+        "aparezcan. NO omitas pasos.\n"
+        "NOTAS Y ADVERTENCIAS: validaciones, errores comunes o recomendaciones.\n"
+        "RESUMEN: breve.\n\n"
+        "Reglas:\n"
+        "- Básate en la transcripción, pero ORDENA y REDACTA con claridad (puedes reformular).\n"
+        "- NO dejes secciones vacías: si hay información relacionada en la transcripción, inclúyela.\n"
+        "- Si algo no se menciona, escribe 'No se especifica en el video' en esa sección.\n"
+        "- Sé extenso y útil; este texto será un manual oficial."
     )
     return _gpt([
         {"role": "system", "content": instruccion},
-        {"role": "user", "content": f"Título sugerido: {titulo}\n\nContenido:\n{texto}"},
-    ], max_tokens=1800)
+        {"role": "user", "content": f"Título sugerido: {titulo}\n\nTRANSCRIPCIÓN / CONTENIDO:\n{texto}"},
+    ], max_tokens=2200, temp=0.35)
 
 
 def resumir_a_manual(transcripcion: str, titulo: str) -> str:
@@ -127,7 +140,7 @@ def resumir_a_manual(transcripcion: str, titulo: str) -> str:
     if not transcripcion:
         return "No se obtuvo transcripción del video."
 
-    max_chars = 9000
+    max_chars = 12000
     if len(transcripcion) <= max_chars:
         return _manual_final(transcripcion, titulo)
 
