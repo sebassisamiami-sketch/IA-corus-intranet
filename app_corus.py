@@ -29,6 +29,7 @@ import logging
 import os
 import json
 import csv
+import html
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
@@ -254,6 +255,88 @@ st.markdown("""
     hr {
         margin: 20px 0;
     }
+
+    /* ===== CHAT MODERNO Y MINIMALISTA ===== */
+    .chat-bubble {
+        border-radius: 14px;
+        padding: 14px 18px;
+        margin: 8px 0;
+        line-height: 1.5;
+        animation: fadeIn .25s ease;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+    .user-bubble {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: #ffffff;
+        margin-left: 18%;
+        box-shadow: 0 4px 14px rgba(102, 126, 234, 0.25);
+    }
+    .ai-bubble {
+        background: #f4f6fb;
+        color: #1f2937;
+        margin-right: 12%;
+        border: 1px solid #e6e9f2;
+    }
+    .bubble-label {
+        font-size: .72rem;
+        font-weight: 700;
+        letter-spacing: .6px;
+        text-transform: uppercase;
+        opacity: .75;
+        margin-bottom: 4px;
+    }
+    .bubble-text { font-size: .95rem; }
+    .chat-time {
+        font-size: .7rem;
+        color: #9ca3af;
+        margin: 2px 0 14px 0;
+    }
+
+    /* ===== FUENTES ESTILO VENTANA DE COMANDOS / TERMINAL ===== */
+    div[data-testid="stCodeBlock"] {
+        background: #0d1117 !important;
+        border-radius: 10px;
+        border: 1px solid #30363d;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+        overflow: hidden;
+    }
+    div[data-testid="stCodeBlock"] pre {
+        background: #0d1117 !important;
+        color: #c9d1d9 !important;
+        padding: 16px !important;
+        font-size: .82rem !important;
+    }
+    div[data-testid="stCodeBlock"] code { color: #c9d1d9 !important; }
+    /* Barra superior tipo ventana con tres "botones" */
+    .terminal-bar {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-bottom: none;
+        border-radius: 10px 10px 0 0;
+        padding: 8px 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: .75rem;
+        color: #8b949e;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .terminal-bar .dot {
+        width: 11px; height: 11px; border-radius: 50%;
+        display: inline-block;
+    }
+    .terminal-bar .red    { background: #ff5f56; }
+    .terminal-bar .yellow { background: #ffbd2e; }
+    .terminal-bar .green  { background: #27c93f; }
+    .terminal-bar .title  { margin-left: 10px; }
+    /* Pega el code block a la barra del terminal */
+    .terminal-bar + div[data-testid="stCodeBlock"] {
+        border-radius: 0 0 10px 10px;
+        margin-top: 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -316,11 +399,11 @@ def pantalla_login():
         </style>
         """, unsafe_allow_html=True)
 
-        # Logo centrado
+        # Logo centrado (tamaño compacto)
         if LOGO_PATH.exists():
-            l1, l2, l3 = st.columns([1, 1.4, 1])
+            l1, l2, l3 = st.columns([1, 1, 1])
             with l2:
-                st.image(str(LOGO_PATH), use_column_width=True)
+                st.image(str(LOGO_PATH), width=120)
 
         st.markdown("""
         <div class="login-hero">
@@ -530,14 +613,14 @@ def pantalla_principal():
 def mostrar_chat():
     """Mostrar interfaz de chat"""
     
-    # Encabezado con logo
-    col_logo, col_titulo = st.columns([0.12, 0.88])
+    # Encabezado con logo (compacto)
+    col_logo, col_titulo = st.columns([0.08, 0.92])
     with col_logo:
         if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), use_column_width=True)
+            st.image(str(LOGO_PATH), width=58)
     with col_titulo:
-        st.markdown("# 💬 Chat Corporativo IA")
-        st.markdown("Consulta documentos de **parafiscales** y **pensiones** con IA")
+        st.markdown("## 💬 Chat Corporativo IA")
+        st.caption("Consulta documentos de parafiscales y pensiones con IA")
     
     # Input con Enter
     with st.form("form_chat", clear_on_submit=True):
@@ -595,8 +678,13 @@ def mostrar_chat():
                     st.markdown("👤")
                 
                 with col2:
-                    st.markdown(f"**Tu pregunta:**")
-                    st.markdown(f"_{msg['mensaje_original']}_")
+                    pregunta = html.escape(str(msg['mensaje_original']))
+                    st.markdown(f"""
+<div class="chat-bubble user-bubble">
+<div class="bubble-label">Tú</div>
+<div class="bubble-text">{pregunta}</div>
+</div>
+""", unsafe_allow_html=True)
                 
                 st.divider()
                 
@@ -607,16 +695,28 @@ def mostrar_chat():
                 
                 with col2:
                     if msg['exitoso']:
-                        st.markdown(f"**Respuesta IA:**")
+                        st.markdown(
+                            '<div class="bubble-label" style="color:#667eea; '
+                            'margin-bottom:4px;">Asistente IA</div>',
+                            unsafe_allow_html=True
+                        )
                         st.markdown(msg['respuesta'])
                         
-                        # Mostrar fuentes
+                        # Mostrar fuentes como ventana de comandos / terminal
                         if msg.get('sources'):
                             with st.expander(f"📚 Fuentes ({len(msg['sources'])})"):
                                 for i, source in enumerate(msg['sources'], 1):
-                                    st.markdown(f"**Fuente {i}: {source['archivo']}**")
-                                    st.caption(f"Página: {source['metadata'].get('page', 'N/A')}")
-                                    st.text(source['contenido'][:300] + "...")
+                                    archivo = html.escape(str(source.get('archivo', 'documento')))
+                                    pagina = source.get('metadata', {}).get('page', 'N/A')
+                                    st.markdown(f"""
+<div class="terminal-bar">
+<span class="dot red"></span>
+<span class="dot yellow"></span>
+<span class="dot green"></span>
+<span class="title">fuente {i} &mdash; {archivo} &middot; pag. {pagina}</span>
+</div>
+""", unsafe_allow_html=True)
+                                    st.code(source['contenido'][:400], language="text")
                     else:
                         st.error(msg['respuesta'])
                 
