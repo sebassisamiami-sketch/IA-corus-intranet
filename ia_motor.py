@@ -7,6 +7,8 @@ Implementa patrón Singleton con inicialización robusta y prevención de alucin
 import logging
 import os
 import json
+import re
+import unicodedata
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from pathlib import Path
@@ -232,9 +234,9 @@ Respuesta:"""
 
             # 1) Recuperar documentos relevantes (con score de distancia)
             try:
-                docs_scored = self.vectorstore.similarity_search_with_score(pregunta, k=4)
+                docs_scored = self.vectorstore.similarity_search_with_score(pregunta, k=6)
             except Exception:
-                docs_scored = [(d, 0.0) for d in self.vectorstore.similarity_search(pregunta, k=4)]
+                docs_scored = [(d, 0.0) for d in self.vectorstore.similarity_search(pregunta, k=6)]
             docs = [d for d, _ in docs_scored]
             best_score = docs_scored[0][1] if docs_scored else None
             logger.info(f"🔎 Mejor distancia: {best_score}")
@@ -259,8 +261,42 @@ Respuesta:"""
                     'timestamp': datetime.now().isoformat()
                 }
 
-            # 2) 🔒 Identificar el documento mas relevante (NO mezclar casos)
-            fuente_principal = docs[0].metadata.get('source')
+            # 2) 🔒 Elegir el documento correcto combinando semántica + título
+            #    Evita confundir casos parecidos (p. ej. "cambio de información"
+            #    vs "documentos en blanco", que comparten SQL y vocabulario)
+            def _norm(s):
+                s = unicodedata.normalize('NFD', str(s).lower())
+                return ''.join(c for c in s if unicodedata.category(c) != 'Mn')
+
+            q_norm = _norm(pregunta)
+            STOP = {"como", "el", "la", "los", "las", "de", "del", "en", "un",
+                    "una", "para", "que", "y", "o", "con", "se", "su", "al",
+                    "por", "mi", "es", "cual", "cuales", "hacer", "puedo"}
+
+            orden_fuentes = []
+            titulo_por_fuente = {}
+            for d in docs:
+                src = d.metadata.get('source')
+                if src and src not in titulo_por_fuente:
+                    titulo_por_fuente[src] = d.metadata.get('titulo') or src
+                    orden_fuentes.append(src)
+
+            def _title_score(src):
+                titulo = _norm(titulo_por_fuente.get(src, src))
+                palabras = [w for w in re.findall(r"\w+", titulo)
+                            if len(w) > 3 and w not in STOP]
+                # cuenta cuántas palabras del título (por prefijo) están en la pregunta
+                return sum(1 for w in palabras if w[:4] in q_norm)
+
+            if orden_fuentes:
+                # Mayor coincidencia de título; empate -> mejor relevancia semántica
+                fuente_principal = max(
+                    orden_fuentes,
+                    key=lambda s: (_title_score(s), -orden_fuentes.index(s))
+                )
+            else:
+                fuente_principal = docs[0].metadata.get('source')
+            logger.info(f"📄 Documento elegido: {fuente_principal}")
 
             # 3) Traer TODOS los fragmentos de ese documento para una
             #    respuesta COMPLETA (ordenados por chunk_id)
