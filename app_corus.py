@@ -633,17 +633,33 @@ def pantalla_login():
                 letter-spacing: .2px; margin-bottom: 6px;
             }
             /* Inputs limpios y profesionales */
-            section.main .stTextInput input,
+            /* La CASILLA completa (contenedor) lleva el borde redondeado.
+               Así el input y el botón del ojo quedan dentro del mismo recuadro. */
+            section.main .stTextInput div[data-baseweb="input"] {
+                background: #ffffff !important;
+                border: 1px solid #c8c6c4 !important;
+                border-radius: 12px !important;
+                box-shadow: none !important;
+                overflow: hidden !important;
+                transition: border-color .15s ease, box-shadow .15s ease;
+            }
+            /* Select del login (si aplica) */
             section.main div[data-baseweb="select"] > div {
                 background: #ffffff !important;
                 color: #1b1b1b !important;
                 border: 1px solid #c8c6c4 !important;
-                border-radius: 6px !important;
+                border-radius: 12px !important;
+            }
+            /* El input interno SIN borde propio (evita el doble borde) */
+            section.main .stTextInput div[data-baseweb="input"] > input,
+            section.main .stTextInput input {
+                background: transparent !important;
+                color: #1b1b1b !important;
+                border: none !important;
+                box-shadow: none !important;
                 padding: 12px 14px !important;
                 font-size: .95rem !important;
                 font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif !important;
-                box-shadow: none !important;
-                transition: border-color .15s ease, box-shadow .15s ease;
             }
             /* Texto guía (placeholder) más oscuro y con mejor tipografía */
             section.main .stTextInput input::placeholder {
@@ -654,25 +670,29 @@ def pantalla_login():
                 font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif !important;
                 letter-spacing: .1px;
             }
-            /* Hover y foco sutiles (profesional) */
-            section.main .stTextInput input:hover {
+            /* Hover sutil */
+            section.main .stTextInput div[data-baseweb="input"]:hover {
                 border-color: #8a8886 !important;
             }
+            /* GLOW AZUL BRILLANTE solo cuando la casilla está seleccionada (foco) */
+            section.main .stTextInput div[data-baseweb="input"]:focus-within {
+                border-color: #2b88ff !important;
+                box-shadow: 0 0 0 3px rgba(43, 136, 255, 0.35),
+                            0 0 10px rgba(43, 136, 255, 0.25) !important;
+            }
+            /* El input interno no dibuja su propio halo (lo hace el contenedor) */
             section.main .stTextInput input:focus {
-                border-color: #0067b8 !important;
-                box-shadow: 0 0 0 2px rgba(0, 103, 184, 0.18) !important;
-            }
-            /* Caja del campo (contenedor) sin borde doble */
-            section.main .stTextInput div[data-baseweb="input"] {
-                background: transparent !important;
-                border: none !important;
                 box-shadow: none !important;
+                border: none !important;
             }
-            /* Botón mostrar/ocultar contraseña: limpio (sin recuadro negro) */
-            section.main .stTextInput button {
+            /* Botón mostrar/ocultar contraseña: transparente (sin recuadro oscuro) */
+            section.main .stTextInput div[data-baseweb="input"] button {
                 background: transparent !important;
                 border: none !important;
                 color: #605e5c !important;
+            }
+            section.main .stTextInput div[data-baseweb="input"] button:hover {
+                color: #2b88ff !important;
             }
             /* Botón azul Microsoft (incluye el botón del formulario de login) */
             section.main .stButton button[kind="primary"],
