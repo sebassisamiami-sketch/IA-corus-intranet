@@ -1080,7 +1080,29 @@ def mostrar_admin_usuarios():
     """Panel de gestión de usuarios"""
     
     st.markdown("## 👥 Gestión de Usuarios")
-    
+
+    # 🔐 Generador de contraseñas cifradas (para usar en Secrets, más seguro)
+    with st.expander("🔐 Generar contraseña cifrada (hash) para Secrets"):
+        st.caption("Escribe una contraseña y copia el hash resultante en tus Secrets. "
+                   "Así no la guardas en texto plano.")
+        pwd_plana = st.text_input("Contraseña a cifrar", type="password", key="gen_hash_pwd")
+        if st.button("🔒 Generar hash", key="btn_gen_hash"):
+            if not pwd_plana:
+                st.warning("Escribe una contraseña primero.")
+            else:
+                try:
+                    import bcrypt
+                    h = bcrypt.hashpw(pwd_plana.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+                    st.success("✅ Hash generado. Cópialo en tus Secrets como 'password':")
+                    st.code(h, language="text")
+                    st.caption("Ejemplo en Secrets:")
+                    st.code(
+                        f'[usuarios.nombre]\npassword = "{h}"\nrol = "Analista"',
+                        language="toml"
+                    )
+                except Exception as e:
+                    st.error(f"No se pudo generar el hash: {e}")
+
     usuarios = cargar_usuarios()
     
     col1, col2 = st.columns([2, 1])
