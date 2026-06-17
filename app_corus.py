@@ -97,11 +97,42 @@ def cargar_motor_ia():
         from ia_motor import obtener_motor
         logger.info("✅ Cargando motor IA...")
         motor = obtener_motor()
+        _autoindexar_documentos(motor)
         logger.info("✅ Motor IA listo")
         return motor
     except Exception as e:
         logger.error(f"❌ Error cargando motor: {e}")
         return None
+
+def _autoindexar_documentos(motor):
+    """Indexa los PDFs del repo automaticamente si el indice esta vacio.
+
+    Streamlit Cloud borra el disco en cada redespliegue, por eso reconstruimos
+    el indice al arrancar para que la IA siempre tenga los documentos.
+    """
+    try:
+        if not motor or not getattr(motor, "vectorstore", None):
+            return
+        try:
+            count = motor.vectorstore._collection.count()
+        except Exception:
+            count = 0
+        if count and count > 0:
+            logger.info(f"📚 Indice ya tiene {count} documentos")
+            return
+        logger.info("📚 Indice vacio: indexando PDFs automaticamente...")
+        from procesar_datos import DataProcessor
+        processor = DataProcessor()
+        total = 0
+        for carpeta, tipo in [("Manual Paraficales", "parafiscales"),
+                              ("Manual Pensiones", "pensiones")]:
+            if Path(carpeta).exists():
+                res = processor.procesar_carpeta(carpeta, tipo)
+                if res.get('exito'):
+                    total += res.get('chunks_creados', 0)
+        logger.info(f"✅ Auto-indexado completado: {total} chunks")
+    except Exception as e:
+        logger.error(f"⚠️ Error auto-indexando: {e}", exc_info=True)
 
 def cargar_chat_processor(usuario, rol):
     """Cargar chat processor"""
@@ -750,10 +781,31 @@ def mostrar_chat():
         [data-testid="stChatInput"] {
             background: #2f2f2f !important;
             border: 1px solid #565869 !important;
-            border-radius: 26px !important;
-            box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
+            border-radius: 28px !important;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+            padding: 4px 8px !important;
+            transition: border-color .2s ease, box-shadow .2s ease;
+        }
+        [data-testid="stChatInput"]:focus-within {
+            border-color: #667eea !important;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.28),
+                        0 6px 22px rgba(0, 0, 0, 0.5) !important;
         }
         [data-testid="stChatInput"] > div { background: transparent !important; }
+        /* Boton de enviar circular con degradado */
+        [data-testid="stChatInput"] button {
+            background: linear-gradient(135deg, #667eea, #764ba2) !important;
+            border-radius: 50% !important;
+            border: none !important;
+            color: #ffffff !important;
+            transition: filter .2s ease, transform .1s ease;
+        }
+        [data-testid="stChatInput"] button:hover { filter: brightness(1.12); }
+        [data-testid="stChatInput"] button:active { transform: scale(0.94); }
+        [data-testid="stChatInput"] button svg {
+            fill: #ffffff !important;
+            color: #ffffff !important;
+        }
         [data-testid="stChatInput"] textarea {
             background: transparent !important;
             color: #ffffff !important;
