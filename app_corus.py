@@ -748,42 +748,63 @@ def pantalla_principal():
 
     # Sidebar expandible con tema profesional
     with st.sidebar:
-        # Logo de la empresa
-        if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), use_column_width=True)
+        # Estilos del menú lateral (profesional y minimalista)
+        st.markdown("""
+        <style>
+            section[data-testid="stSidebar"] .side-user {
+                display:flex; align-items:center; gap:12px;
+                background:#1f1f22; border:1px solid #2f2f35; border-radius:14px;
+                padding:12px 14px; margin:6px 0 10px 0;
+            }
+            section[data-testid="stSidebar"] .side-avatar {
+                width:42px; height:42px; border-radius:50%; flex:0 0 42px;
+                background:linear-gradient(135deg,#8ab4f8,#764ba2);
+                color:#fff; display:flex; align-items:center; justify-content:center;
+                font-weight:700; font-size:18px;
+            }
+            section[data-testid="stSidebar"] .side-user-name {
+                color:#ececf1; font-weight:600; font-size:.95rem; line-height:1.15;
+            }
+            section[data-testid="stSidebar"] .side-user-role {
+                color:#8ab4f8; font-size:.78rem; margin-top:2px;
+            }
+            section[data-testid="stSidebar"] .side-label {
+                color:#8e8ea0; font-size:.72rem; font-weight:700; letter-spacing:1.2px;
+                text-transform:uppercase; margin:14px 0 6px 2px;
+            }
+        </style>
+        """, unsafe_allow_html=True)
 
-        # Header del sidebar
+        # Logo de la empresa (centrado, compacto)
+        if LOGO_PATH.exists():
+            lc1, lc2, lc3 = st.columns([1, 2, 1])
+            with lc2:
+                st.image(str(LOGO_PATH), use_column_width=True)
+
+        # Tarjeta de usuario
+        _inicial = (st.session_state.usuario or "U")[0].upper()
         st.markdown(f"""
-        <div style="
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 20px;
-            border-radius: 10px;
-            color: white;
-            margin-bottom: 20px;
-        ">
-            <h3 style="margin: 0;">👤 {st.session_state.usuario}</h3>
-            <p style="margin: 5px 0; opacity: 0.9;">🏷️ {st.session_state.rol}</p>
+        <div class="side-user">
+            <div class="side-avatar">{_inicial}</div>
+            <div>
+                <div class="side-user-name">{st.session_state.usuario}</div>
+                <div class="side-user-role">{st.session_state.rol}</div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
         
-        # Menú principal
-        st.markdown("### 📋 Menú")
-        
-        col_menu1, col_menu2 = st.columns([3, 1])
-        
-        with col_menu1:
-            opcion = st.radio(
-                "Selecciona",
-                ["💬 Chat", "📊 Estadísticas"],
-                label_visibility="collapsed",
-                key="menu_principal"
-            )
-        
-        st.divider()
+        # Navegación principal
+        st.markdown('<div class="side-label">Navegación</div>', unsafe_allow_html=True)
+        opcion = st.radio(
+            "Navegación",
+            ["💬 Chat", "📊 Estadísticas"],
+            label_visibility="collapsed",
+            key="menu_principal"
+        )
         
         # Panel Admin (solo para administradores)
         if st.session_state.rol == "Administrador":
-            st.markdown("### 🔐 Panel Administrativo")
+            st.markdown('<div class="side-label">Administración</div>', unsafe_allow_html=True)
             
             admin_opcion = st.selectbox(
                 "Herramientas Admin",
@@ -806,7 +827,7 @@ def pantalla_principal():
             admin_opcion = None
         
         # Sesión
-        st.markdown("### 🔌 Sesión")
+        st.markdown('<div class="side-label">Sesión</div>', unsafe_allow_html=True)
         
         col_sesion1, col_sesion2 = st.columns(2)
         
@@ -833,7 +854,7 @@ def pantalla_principal():
         
         # Información
         st.markdown("---")
-        st.caption(f"⏱️ Inicio: {st.session_state.inicio_sesion.strftime('%H:%M:%S')}")
+        st.caption(f"⏱️ Sesión iniciada: {st.session_state.inicio_sesion.strftime('%H:%M:%S')}")
     
     # CONTENIDO PRINCIPAL
     mostrar_admin = (
