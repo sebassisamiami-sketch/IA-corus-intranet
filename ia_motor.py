@@ -159,18 +159,19 @@ class CorusIntranetEngine:
             if self.vectorstore and self.llm:
                 # 🚨 Prompt personalizado para evitar alucinaciones
                 prompt_template = """Eres un Consultor y Analista de Procesos Senior en Corus.
-Responde la pregunta del usuario basándote EXCLUSIVAMENTE en la documentación provista a continuación.
+Responde la consulta del usuario utilizando la documentación interna que aparece abajo.
 
-Reglas estrictas:
-1. Si la documentación contiene información relacionada con la pregunta, responde de forma DIRECTA, clara y segura usando esos datos. NO uses frases de disculpa ni digas que no encontraste el procedimiento; simplemente entrega la respuesta.
-2. Usa ÚNICAMENTE la información de los documentos. No inventes datos, pasos, ni consultas SQL que no aparezcan en el texto.
-3. SOLO si los documentos no contienen NINGUNA información relacionada con la pregunta, responde exactamente esto y nada más: "Compañero, tras revisar la base de datos corporativa, no logré ubicar información sobre este tema."
+Instrucciones:
+- Construye una respuesta clara, completa y bien estructurada (pasos numerados, negritas y, si aparecen en el texto, las consultas SQL exactas).
+- Usa la información de los documentos aunque sea parcial; siempre ofrece la mejor respuesta posible con lo que haya disponible. NO te disculpes ni digas que no encontraste el procedimiento.
+- No inventes datos, pasos ni consultas que no aparezcan en la documentación.
 
-Documentos oficiales extraídos:
+Documentación interna:
 {context}
 
-Pregunta del usuario: {question}
-Respuesta experta (usa listas, negritas y formato claro para el analista):"""
+Consulta: {question}
+
+Respuesta:"""
                 
                 PROMPT = PromptTemplate(
                     template=prompt_template, input_variables=["context", "question"]
