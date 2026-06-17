@@ -135,6 +135,9 @@ class ChatProcessor:
                 for f in frases_cierre
             ):
                 logger.info("🛑 Comando de cierre detectado. Abortando consumo de IA OpenAI.")
+                # Al cerrar un caso, olvidamos el caso activo para que el siguiente
+                # mensaje empiece de cero (evita arrastrar el caso anterior).
+                self.ultima_fuente = None
                 respuesta_cierre = {
                     'exitoso': True,
                     'mensaje_original': mensaje,
@@ -263,6 +266,9 @@ class ChatProcessor:
         """Limpiar historial de la sesión"""
         try:
             self.historial_local = []
+            # Olvidamos también el caso activo: al limpiar el chat, el siguiente
+            # mensaje NO debe arrastrar el caso anterior (evita confundir el caso).
+            self.ultima_fuente = None
             self._guardar_sesion()
             logger.info(f"✅ Historial limpiado para {self.usuario}")
             return True
