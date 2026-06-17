@@ -1115,7 +1115,7 @@ def mostrar_chat():
                 placeholder="Pregunta sobre la imagen (opcional)"
             )
         with col_bi:
-            enviar_imagen = st.button("🔍 Analizar imagen", use_container_width=True, type="primary")
+            enviar_imagen = st.button("Analizar imagen", use_container_width=True, type="primary")
 
     # Entrada fija abajo (estilo ChatGPT)
     user_input = st.chat_input("Escribe tu pregunta...")
