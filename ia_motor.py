@@ -69,6 +69,40 @@ EXPERTO_SYS = (
 )
 
 
+def _unir_chunks(chunks_text, titulo=None):
+    """Reconstruye el texto completo del documento a partir de sus fragmentos,
+    quitando el solapamiento (overlap) entre fragmentos consecutivos y la
+    cabecera '[Documento: ...]' repetida. Así la fuente se ve completa y limpia."""
+    limpios = []
+    for t in chunks_text:
+        t = t or ""
+        # quitar la cabecera '[Documento: titulo]\n' que se antepone a cada chunk
+        if t.startswith("[Documento:"):
+            nl = t.find("\n")
+            if nl != -1:
+                t = t[nl + 1:]
+        limpios.append(t)
+
+    full = ""
+    for c in limpios:
+        if not full:
+            full = c
+            continue
+        # buscar el mayor solapamiento entre el final de 'full' y el inicio de 'c'
+        max_ov = min(len(full), len(c), 500)
+        ov = 0
+        for k in range(max_ov, 15, -1):
+            if full[-k:] == c[:k]:
+                ov = k
+                break
+        full += c[ov:]
+
+    full = full.strip()
+    if titulo:
+        full = f"[Documento: {titulo}]\n{full}"
+    return full
+
+
 class CorusIntranetEngine:
     """
     Motor IA de Corus - Singleton Pattern
@@ -435,13 +469,19 @@ Respuesta:"""
             respuesta_llm = self.llm.invoke([HumanMessage(content=prompt_final)])
             self.estadisticas['queries_exitosas'] += 1
 
+            # FUENTE COMPLETA: reconstruimos TODO el documento en un solo bloque
+            # (sin solapamientos ni cabeceras repetidas) para que se vea completo.
+            meta_doc = (chunks_doc[0][1] if chunks_doc else {}) or {}
+            titulo_doc = meta_doc.get('titulo') or meta_doc.get('source') or fuente_principal
+            texto_completo_fuente = _unir_chunks(
+                [t for t, _ in chunks_doc], titulo=titulo_doc
+            )
             sources = [
                 {
-                    'contenido': t,
-                    'metadata': m or {},
-                    'archivo': (m or {}).get('source', 'desconocido')
+                    'contenido': texto_completo_fuente,
+                    'metadata': meta_doc,
+                    'archivo': meta_doc.get('source', fuente_principal or 'desconocido')
                 }
-                for t, m in chunks_doc
             ]
 
             return {
