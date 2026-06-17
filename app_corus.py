@@ -1069,43 +1069,67 @@ def mostrar_chat():
         key="img_chat"
     )
 
-    # Entrada fija abajo (estilo ChatGPT) - patron oficial, SIN st.rerun()
+    # Si hay imagen adjunta, mostramos un campo + botón para enviarla (con o sin texto)
+    pregunta_imagen = ""
+    enviar_imagen = False
+    if imagen is not None:
+        col_pi, col_bi = st.columns([0.74, 0.26])
+        with col_pi:
+            pregunta_imagen = st.text_input(
+                "Pregunta sobre la imagen",
+                key="preg_img",
+                label_visibility="collapsed",
+                placeholder="Pregunta sobre la imagen (opcional)"
+            )
+        with col_bi:
+            enviar_imagen = st.button("🔍 Analizar imagen", use_container_width=True, type="primary")
+
+    # Entrada fija abajo (estilo ChatGPT)
     user_input = st.chat_input("Escribe tu pregunta...")
-    if user_input and user_input.strip():
-        logger.info(f"📨 Mensaje de {st.session_state.usuario}: {user_input[:50]}")
 
-        # Mostrar la pregunta del usuario de inmediato (con la imagen si la adjuntó)
+    # ---- Decidir qué se envía ----
+    pregunta_final = None
+    usar_imagen = False
+    if enviar_imagen and imagen is not None:
+        pregunta_final = pregunta_imagen.strip() or "Ayúdame con el caso que se ve en la imagen."
+        usar_imagen = True
+    elif user_input and user_input.strip():
+        pregunta_final = user_input
+        usar_imagen = imagen is not None
+
+    if pregunta_final:
+        logger.info(f"📨 Mensaje de {st.session_state.usuario}: {pregunta_final[:50]} (imagen={usar_imagen})")
+
+        # Mostrar la pregunta del usuario (con la imagen si aplica)
         with st.chat_message("user", avatar="🧑"):
-            if imagen is not None:
+            if usar_imagen and imagen is not None:
                 st.image(imagen, width=300)
-            st.markdown(user_input)
+            st.markdown(pregunta_final)
 
-        # Generar y mostrar la respuesta del asistente
+        # Respuesta del asistente
         with st.chat_message("assistant", avatar=avatar_ia):
-            if imagen is not None:
+            if usar_imagen and imagen is not None:
                 # ----- Caso con IMAGEN (análisis de visión) -----
                 with st.spinner("Analizando la imagen..."):
                     try:
                         from vision_chat import analizar_imagen
-                        # Grounding opcional con la documentación
                         ctx_doc = ""
                         try:
                             motor = st.session_state.motor_ia
-                            if motor and getattr(motor, "vectorstore", None) and user_input.strip():
-                                ds = motor.vectorstore.similarity_search(user_input, k=2)
+                            if motor and getattr(motor, "vectorstore", None) and pregunta_final.strip():
+                                ds = motor.vectorstore.similarity_search(pregunta_final, k=2)
                                 ctx_doc = "\n\n".join(d.page_content for d in ds)
                         except Exception:
                             ctx_doc = ""
                         r = analizar_imagen(
-                            user_input, imagen.getvalue(),
+                            pregunta_final, imagen.getvalue(),
                             getattr(imagen, "type", "image/png"), ctx_doc
                         )
                         st.markdown(r)
-                        # Guardar en el historial (como texto, para continuidad)
                         try:
                             st.session_state.chat_processor.historial_local.append({
                                 "exitoso": True,
-                                "mensaje_original": user_input + "  [imagen adjunta]",
+                                "mensaje_original": pregunta_final + "  [imagen adjunta]",
                                 "respuesta": r, "sources": [],
                                 "timestamp": datetime.now().isoformat(),
                                 "usuario": st.session_state.usuario,
@@ -1121,7 +1145,7 @@ def mostrar_chat():
                 with st.spinner("Pensando..."):
                     try:
                         respuesta = st.session_state.chat_processor.procesar_mensaje(
-                            mensaje=user_input,
+                            mensaje=pregunta_final,
                             contexto={'rol': st.session_state.rol}
                         )
                     except Exception as e:
