@@ -65,3 +65,7 @@ htmlcov/
 # OS
 Thumbs.db
 Desktop.ini
+
+
+# Token para control remoto del servidor (NO subir)
+github_token.txt

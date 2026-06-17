@@ -157,6 +157,31 @@ def cargar_data_processor():
 # ===== USUARIOS Y ROLES ADMINISTRABLES =====
 ARCHIVO_USUARIOS = "data/usuarios.json"
 
+# ===== ESTADO DEL SERVIDOR (interruptor de mantenimiento) =====
+# Se guarda en la raíz del repo para que también pueda controlarse desde fuera (.bat)
+ESTADO_APP_PATH = Path(__file__).parent / "estado_app.json"
+
+def leer_estado_app() -> bool:
+    """True si el servidor está activo; False si está en mantenimiento."""
+    try:
+        if ESTADO_APP_PATH.exists():
+            with open(ESTADO_APP_PATH, 'r', encoding='utf-8') as f:
+                return bool(json.load(f).get("servidor_activo", True))
+    except Exception:
+        pass
+    return True
+
+def guardar_estado_app(activo: bool) -> bool:
+    """Guarda el estado del servidor (activo o mantenimiento)."""
+    try:
+        with open(ESTADO_APP_PATH, 'w', encoding='utf-8') as f:
+            json.dump({"servidor_activo": bool(activo)}, f, ensure_ascii=False, indent=2)
+        logger.info(f"🖥️ Estado del servidor: activo={activo}")
+        return True
+    except Exception as e:
+        logger.error(f"Error guardando estado del servidor: {e}")
+        return False
+
 def cargar_usuarios() -> Dict[str, Dict]:
     """Cargar usuarios combinando: por defecto + Secrets (permanentes) + archivo local.
 
@@ -632,10 +657,30 @@ def pantalla_login():
             unsafe_allow_html=True
         )
 
+        # 🚧 Aviso de mantenimiento si el servidor está cerrado
+        if not leer_estado_app():
+            st.markdown(
+                "<div style='text-align:center; margin-top:16px; padding:14px; "
+                "background:#3a1d1d; border:1px solid #b91c1c; border-radius:10px; "
+                "color:#fca5a5; font-weight:600;'>🚧 En mantenimiento</div>",
+                unsafe_allow_html=True
+            )
+
 # ===== PANTALLA PRINCIPAL =====
 def pantalla_principal():
     """Pantalla principal después de login"""
-    
+
+    # 🚧 Si el servidor está en mantenimiento, solo el Administrador puede entrar
+    if not leer_estado_app() and st.session_state.rol != "Administrador":
+        st.markdown(
+            "<div style='text-align:center; margin-top:22vh;'>"
+            "<h1 style='color:#ececf1;'>🚧 En mantenimiento</h1>"
+            "<p style='color:#9a9a9a;'>El servidor está temporalmente cerrado. "
+            "Por favor vuelve a intentarlo más tarde.</p></div>",
+            unsafe_allow_html=True
+        )
+        st.stop()
+
     # Sidebar expandible con tema profesional
     with st.sidebar:
         # Logo de la empresa
@@ -683,7 +728,8 @@ def pantalla_principal():
                     "Procesar PDFs",
                     "Estado de BD",
                     "Registros de Acceso",
-                    "Estadísticas IA"
+                    "Estadísticas IA",
+                    "Control del Servidor"
                 ],
                 label_visibility="collapsed",
                 key="admin_menu"
@@ -741,6 +787,8 @@ def pantalla_principal():
             mostrar_admin_accesos()
         elif admin_opcion == "Estadísticas IA":
             mostrar_admin_estadisticas_ia()
+        elif admin_opcion == "Control del Servidor":
+            mostrar_admin_servidor()
     elif opcion == "💬 Chat":
         mostrar_chat()
     elif opcion == "📊 Estadísticas":
@@ -787,6 +835,12 @@ def mostrar_chat():
             padding: 10px 0 !important;
         }
         [data-testid="stChatMessage"] * { color: #ececf1 !important; }
+        /* Avatar (logo) sin recortar: se ve completo y encuadrado */
+        [data-testid="stChatMessage"] img {
+            object-fit: contain !important;
+            background: transparent !important;
+            padding: 2px !important;
+        }
 
         /* Barra inferior y caja de entrada estilo ChatGPT */
         [data-testid="stChatFloatingInputContainer"],
@@ -1180,6 +1234,37 @@ def mostrar_admin_estadisticas_ia():
             st.text(f"**{key}:** {value}")
 
 # ===== MAIN =====
+def mostrar_admin_servidor():
+    """Panel para cerrar/activar el servidor (modo mantenimiento)."""
+    st.markdown("## 🖥️ Control del Servidor")
+
+    activo = leer_estado_app()
+
+    if activo:
+        st.success("🟢 El servidor está **ACTIVO**. Los usuarios pueden usar la aplicación.")
+        st.caption("Al cerrar el servidor, los usuarios verán '🚧 En mantenimiento' en el login y no podrán ingresar (solo el administrador).")
+        if st.button("🔴 Cerrar servidor", type="primary", use_container_width=True):
+            if guardar_estado_app(False):
+                st.warning("🚧 Servidor **CERRADO**. Los usuarios verán el mensaje de mantenimiento.")
+                st.rerun()
+            else:
+                st.error("❌ No se pudo actualizar el estado.")
+    else:
+        st.error("🔴 El servidor está **CERRADO** (en mantenimiento). Los usuarios no pueden ingresar.")
+        if st.button("🟢 Activar servidor", type="primary", use_container_width=True):
+            if guardar_estado_app(True):
+                st.success("✅ Servidor **ACTIVADO**. Los usuarios ya pueden ingresar.")
+                st.rerun()
+            else:
+                st.error("❌ No se pudo actualizar el estado.")
+
+    st.divider()
+    st.caption(
+        "ℹ️ Este interruptor afecta la instancia en ejecución de inmediato. "
+        "Tras un redespliegue, el servidor vuelve a su estado guardado en el repositorio "
+        "(estado_app.json). Para apagarlo de forma permanente desde tu PC, usa el script externo (.bat)."
+    )
+
 def main():
     """Función principal"""
     inicializar_sesion()
