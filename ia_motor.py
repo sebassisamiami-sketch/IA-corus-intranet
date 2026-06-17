@@ -121,9 +121,12 @@ class CorusIntranetEngine:
         """Crear instancia de GPT-4o-mini"""
         logger.info("🔄 Creando LLM...")
         try:
+            import openai
+            openai.api_key = self.api_key
+            
             self.llm = ChatOpenAI(
                 openai_api_key=self.api_key,
-                model_name="gpt-4o-mini",
+                model_name="gpt-3.5-turbo",
                 temperature=0.0,
                 max_tokens=2048,
                 request_timeout=60
