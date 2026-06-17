@@ -1,5 +1,41 @@
 # 🔧 Guía de Solución de Problemas
 
+## 🚨 PROBLEMA CRÍTICO RESUELTO: "Preparing metadata" atascado
+
+### ❌ Causa Raíz Identificada
+
+El error **"Preparing metadata (pyproject.toml): started"** que se queda congelado es causado por:
+
+1. **ChromaDB 0.5.x** tiene un `pyproject.toml` problemático que Streamlit Cloud no puede procesar
+2. **LangChain 0.3.x+** tiene dependencias circulares con pydantic
+3. **langchain-huggingface** estaba usado en el código pero NO en `requirements.txt`
+4. **sentence-transformers 3.x+** es muy pesado para instalación
+
+### ✅ Solución Final Aplicada
+
+**Versiones PROBADAS en Streamlit Cloud Production:**
+
+```txt
+streamlit==1.32.0          # Estable, rápida
+langchain==0.1.9           # Sin conflictos
+langchain-openai==0.0.6    # Compatible
+langchain-community==0.0.24 # Compatible
+chromadb==0.4.22           # SIN pyproject.toml problemático
+openai==1.12.0             # API estable
+sentence-transformers==2.5.1 # Ligera
+pypdf==4.0.0               # Estable
+pandas==2.0.3              # Ligera
+```
+
+**Cambios en el código:**
+
+1. ✅ Eliminado `langchain-huggingface` (no compatible)
+2. ✅ Wrapper custom para `sentence-transformers`
+3. ✅ API antigua: `openai_api_key` (no `api_key`)
+4. ✅ API antigua: `model_name` (no `model`)
+
+---
+
 ## ❌ Error: "installer returned a non-zero exit code"
 
 ### Causa
