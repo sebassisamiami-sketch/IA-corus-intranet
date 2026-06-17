@@ -323,8 +323,8 @@ def pantalla_login():
             if st.button("ℹ️", help="Ver credenciales de prueba"):
                 st.info("""
                 **Usuarios:**
-                - admin / admin123
-                - analista / analista123
+                - admin / Pipeline**2038******
+                - analista / FarmeoAura*26*****
                 """)
         
         st.markdown("---")
