@@ -1696,22 +1696,9 @@ def mostrar_admin_enlaces():
         "válido, nadie puede entrar como invitado.\n"
         "- El enlace **caduca** automáticamente (1 semana por defecto).\n"
         "- Los invitados entran **solo al chat**; no ven las herramientas de administración.\n"
-        "- El enlace ya incluye `embed=true`, que **oculta el logo/badge de Streamlit** "
-        "('Hosted with Streamlit') para que se vea profesional.\n"
         "- Para invalidar **todos** los enlaces de golpe (o reforzar la seguridad), "
         "define `invite_seed` en *Settings → Secrets* y cámbiala cuando quieras."
     )
-
-    st.divider()
-    st.markdown("**Para tu equipo (usuarios con cuenta)**")
-    if base_url.strip():
-        from invite_links import construir_enlace as _ce  # noqa
-        url_limpia = base_url.strip().rstrip("/")
-        url_limpia = f"{url_limpia}{'&' if '?' in url_limpia else '?'}embed=true"
-        st.caption("Comparte esta URL (con `embed=true`) para que tampoco vean el badge de Streamlit:")
-        st.code(url_limpia, language="text")
-    else:
-        st.caption("Escribe la URL de la app arriba para ver la versión 'limpia' (con embed=true).")
 
 
 def _intentar_acceso_invitado() -> bool:

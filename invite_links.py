@@ -100,13 +100,7 @@ def expira_legible(exp: int) -> str:
 
 
 def construir_enlace(base_url: str, token: str) -> str:
-    """Construye el enlace completo a partir de la URL base y el token.
-
-    Incluye `embed=true`: es el modo oficial de Streamlit que elimina el badge
-    'Hosted with Streamlit', el footer y la barra superior, para que el enlace
-    se vea limpio y profesional (sin marca de Streamlit) para los invitados.
-    """
+    """Construye el enlace completo a partir de la URL base y el token."""
     base = (base_url or "").strip().rstrip("/")
-    # quitar cualquier embed/invite previo para no duplicar
     sep = "&" if ("?" in base) else "?"
-    return f"{base}{sep}embed=true&invite={token}"
+    return f"{base}{sep}invite={token}"
