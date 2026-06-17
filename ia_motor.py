@@ -286,15 +286,8 @@ Respuesta:"""
             ]
             es_followup = any(k in q_norm for k in followup_kw)
 
-            # 2.5) MODO EXPERTO: preguntas conceptuales (qué es / explica / para qué sirve...)
-            # No las forzamos a un caso; respondemos como experto del dominio.
-            conceptual_kw = [
-                "que es", "que son", "que significa", "para que sirve", "en que consiste",
-                "que se hace en", "de que trata", "definicion", "concepto de", "explicame que es",
-                "explica que es", "que es un flujo", "hablame de", "cuentame sobre", "que es el",
-                "que es la"
-            ]
-            if any(k in q_norm for k in conceptual_kw):
+            # 2.5) MODO EXPERTO (activado/desactivado por el usuario con el botón del chat)
+            if (contexto or {}).get('modo_experto'):
                 ctx_exp = ""
                 try:
                     ctx_exp = "\n\n".join(d.page_content for d in docs[:3])
