@@ -627,6 +627,11 @@ def pantalla_login():
 
         st.markdown('<div class="ms-title">Iniciar sesión</div>', unsafe_allow_html=True)
         st.markdown('<div class="ms-sub">Usa tu cuenta corporativa de Corus</div>', unsafe_allow_html=True)
+
+        # Aviso si llegaron con un enlace de invitación inválido o caducado
+        if st.session_state.get("_invite_error"):
+            st.error("🔗 El enlace de invitación no es válido o ya caducó. "
+                     "Solicita un enlace nuevo al administrador.")
         
         # Seleccionar usuario
         usuarios_list = list(usuarios.keys())
@@ -807,9 +812,11 @@ def pantalla_principal():
         
         # Navegación principal
         st.markdown('<div class="side-label">Navegación</div>', unsafe_allow_html=True)
+        # Los invitados (acceso por enlace) solo ven el Chat
+        opciones_nav = ["Chat"] if st.session_state.rol == "Invitado" else ["Chat", "Estadísticas"]
         opcion = st.radio(
             "Navegación",
-            ["Chat", "Estadísticas"],
+            opciones_nav,
             label_visibility="collapsed",
             key="menu_principal"
         )
@@ -823,6 +830,7 @@ def pantalla_principal():
                 [
                     "— Inicio —",
                     "Gestionar Usuarios",
+                    "Enlaces de acceso",
                     "Procesar PDFs",
                     "Estado de BD",
                     "Registros de Acceso",
@@ -878,6 +886,8 @@ def pantalla_principal():
     if mostrar_admin:
         if admin_opcion == "Gestionar Usuarios":
             mostrar_admin_usuarios()
+        elif admin_opcion == "Enlaces de acceso":
+            mostrar_admin_enlaces()
         elif admin_opcion == "Procesar PDFs":
             mostrar_admin_pdfs()
         elif admin_opcion == "Estado de BD":
@@ -1579,9 +1589,140 @@ def mostrar_admin_servidor():
         "(estado_app.json). Para apagarlo de forma permanente desde tu PC, usa el script externo (.bat)."
     )
 
+def mostrar_admin_enlaces():
+    """Generador de enlaces de invitación (acceso temporal solo por enlace)."""
+    from invite_links import (
+        generar_token, validar_token, expira_legible, construir_enlace
+    )
+
+    st.markdown("## 🔗 Enlaces de acceso")
+    st.caption(
+        "Genera un enlace temporal para que otras personas entren a la IA sin "
+        "usuario ni contraseña. El enlace cambia cada vez que lo generas, caduca "
+        "en 7 días y es la única forma de acceso para invitados."
+    )
+
+    # URL pública de la app (para armar el enlace)
+    url_secreto = ""
+    try:
+        url_secreto = st.secrets.get("app_url", "")
+    except Exception:
+        url_secreto = ""
+    base_url = st.text_input(
+        "URL de la aplicación",
+        value=st.session_state.get("_app_url", url_secreto),
+        placeholder="https://tu-app.streamlit.app",
+        help="La dirección pública de la app. Se usa para construir el enlace que compartes."
+    )
+    st.session_state["_app_url"] = base_url
+
+    dias = st.slider("Duración del enlace (días)", 1, 7, 7)
+
+    if st.button("🔗 Generar enlace de invitación", type="primary", use_container_width=True):
+        if not base_url.strip():
+            st.warning("Primero escribe la URL de la aplicación.")
+        else:
+            token = generar_token(dias)
+            st.session_state["_invite_link"] = construir_enlace(base_url, token)
+            st.session_state["_invite_token"] = token
+
+    link = st.session_state.get("_invite_link")
+    if link:
+        token = st.session_state.get("_invite_token", "")
+        _, exp = validar_token(token)
+        st.success("✅ Enlace generado. Cópialo y compártelo:")
+        st.code(link, language="text")
+        if exp:
+            st.caption(
+                f"⏳ Caduca el {expira_legible(exp)}. "
+                "Después de esa fecha el enlace dejará de funcionar."
+            )
+
+    st.divider()
+    st.markdown("**¿Cómo funciona la seguridad?**")
+    st.markdown(
+        "- Solo funcionan los enlaces generados aquí (van firmados). Sin un enlace "
+        "válido, nadie puede entrar como invitado.\n"
+        "- El enlace **caduca** automáticamente (1 semana por defecto).\n"
+        "- Los invitados entran **solo al chat**; no ven las herramientas de administración.\n"
+        "- Para invalidar **todos** los enlaces de golpe (o reforzar la seguridad), "
+        "define `invite_seed` en *Settings → Secrets* y cámbiala cuando quieras."
+    )
+
+
+def _intentar_acceso_invitado() -> bool:
+    """Si la URL trae ?invite=<token> válido, autentica como Invitado (sin login).
+
+    Devuelve True si quedó autenticado como invitado. Esta es la ÚNICA forma de
+    acceso para personas externas: sin un enlace válido no pueden entrar.
+    """
+    if st.session_state.get("autenticado"):
+        return False
+    try:
+        qp = st.experimental_get_query_params()
+    except Exception:
+        qp = {}
+    valores = qp.get("invite") if qp else None
+    if isinstance(valores, list):
+        token = valores[0] if valores else None
+    else:
+        token = valores
+    if not token:
+        return False
+
+    try:
+        from invite_links import validar_token
+    except Exception:
+        return False
+
+    valido, _exp = validar_token(token)
+    if not valido:
+        st.session_state["_invite_error"] = True
+        return False
+
+    # Enlace válido -> crear sesión de invitado (solo chat)
+    motor_ia = cargar_motor_ia()
+    if not motor_ia:
+        return False
+    try:
+        if motor_ia.obtener_estado().get('estado') != 'listo':
+            return False
+    except Exception:
+        return False
+
+    uid = "invitado-" + str(st.session_state.get("session_id", "")).replace(".", "")[-8:]
+    chat_processor = cargar_chat_processor(uid, "Invitado")
+    if not chat_processor:
+        return False
+    try:
+        chat_processor._cargar_memoria_usuario()
+    except Exception:
+        pass
+
+    st.session_state.autenticado = True
+    st.session_state.usuario = uid
+    st.session_state.rol = "Invitado"
+    st.session_state.motor_ia = motor_ia
+    st.session_state.chat_processor = chat_processor
+    st.session_state.historial = chat_processor.historial_local
+    st.session_state.inicio_sesion = datetime.now()
+    st.session_state.ultima_actividad = datetime.now()
+    st.session_state["_invite_error"] = False
+    try:
+        registrar_acceso(uid, "Invitado", "LOGIN_INVITADO")
+    except Exception:
+        pass
+    logger.info(f"✅ Acceso de invitado por enlace: {uid}")
+    return True
+
+
 def main():
     """Función principal"""
     inicializar_sesion()
+
+    # Acceso de invitado mediante enlace temporal (?invite=token)
+    if not st.session_state.autenticado:
+        _intentar_acceso_invitado()
     
     if st.session_state.autenticado:
         # 🔒 Auto-logout por inactividad (15 minutos)
