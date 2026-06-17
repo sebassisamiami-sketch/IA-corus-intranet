@@ -158,19 +158,39 @@ def cargar_data_processor():
 ARCHIVO_USUARIOS = "data/usuarios.json"
 
 def cargar_usuarios() -> Dict[str, Dict]:
-    """Cargar usuarios desde archivo"""
-    if Path(ARCHIVO_USUARIOS).exists():
-        try:
-            with open(ARCHIVO_USUARIOS, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            pass
-    
-    # Usuarios por defecto
-    return {
+    """Cargar usuarios combinando: por defecto + Secrets (permanentes) + archivo local.
+
+    - Secrets: persisten siempre (recomendado para los compañeros del equipo).
+    - Archivo local (data/usuarios.json): creados en la app, se pierden al redesplegar.
+    """
+    # 1) Usuarios por defecto
+    usuarios = {
         "admin": {"contraseña": "admin123", "rol": "Administrador"},
         "analista": {"contraseña": "analista123", "rol": "Analista"}
     }
+
+    # 2) Usuarios PERMANENTES definidos en Streamlit Secrets ([usuarios.<nombre>])
+    try:
+        secret_users = st.secrets.get("usuarios", None)
+        if secret_users:
+            for nombre, datos in dict(secret_users).items():
+                datos = dict(datos)
+                usuarios[nombre] = {
+                    "contraseña": datos.get("contraseña", datos.get("password", "")),
+                    "rol": datos.get("rol", "Analista")
+                }
+    except Exception:
+        pass
+
+    # 3) Usuarios creados en la app (temporales hasta el próximo redespliegue)
+    if Path(ARCHIVO_USUARIOS).exists():
+        try:
+            with open(ARCHIVO_USUARIOS, 'r', encoding='utf-8') as f:
+                usuarios.update(json.load(f))
+        except Exception:
+            pass
+
+    return usuarios
 
 def guardar_usuarios(usuarios: Dict):
     """Guardar usuarios en archivo"""
