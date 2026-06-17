@@ -737,7 +737,7 @@ def mostrar_chat():
         }
         /* Columna de conversacion centrada y estrecha */
         section.main .block-container {
-            max-width: 800px;
+            max-width: 900px;
             padding-top: 1.5rem;
             padding-bottom: 9rem;
         }
@@ -792,12 +792,11 @@ def mostrar_chat():
             box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.30),
                         0 6px 26px rgba(0, 0, 0, 0.55) !important;
         }
-        /* Quitar bordes/fondos blancos internos de baseweb */
-        [data-testid="stChatInput"] > div,
-        [data-testid="stChatInput"] div[data-baseweb="textarea"],
-        [data-testid="stChatInput"] div[data-baseweb="base-input"] {
+        /* Quitar TODOS los bordes internos (elimina el segundo borde) */
+        [data-testid="stChatInput"] *:not(button) {
             background: transparent !important;
             border: none !important;
+            outline: none !important;
             box-shadow: none !important;
         }
         /* Boton de enviar circular con degradado */
