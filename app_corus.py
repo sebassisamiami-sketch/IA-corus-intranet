@@ -332,6 +332,21 @@ st.markdown("""
     ._link_gzau3_10,
     ._profilePreview_gzau3_63 { display: none !important; }
 
+    /* ===== Intento final: footer del modo embed "Built with Streamlit" + "Fullscreen" =====
+       Se oculta cualquier enlace a streamlit.io y su contenedor directo, además del
+       botón de pantalla completa del modo embed. (Algunos elementos los pone el
+       hosting fuera del alcance del CSS; si persiste, es atribución del plan gratis.) */
+    a[href*="streamlit.io"] { display: none !important; }
+    div:has(> a[href*="streamlit.io"]) { display: none !important; }
+    span:has(> a[href*="streamlit.io"]) { display: none !important; }
+    button[title="Fullscreen"],
+    button[title="Enter fullscreen"],
+    button[title="Exit fullscreen"] { display: none !important; }
+    [class*="viewerBadge"],
+    [class*="ViewerBadge"],
+    [class*="_viewerBadge"],
+    [class*="stAppViewBadge"] { display: none !important; }
+
 
     /* Colores corporativos */
     :root {
