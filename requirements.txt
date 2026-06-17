@@ -23,3 +23,11 @@ tiktoken==0.5.1
 
 # Seguridad - hash de contraseñas
 bcrypt
+
+
+# Copiloto de reunión - grabación de micrófono (app aparte)
+streamlit-mic-recorder
+
+
+# Video a Manual - generación de PDF
+fpdf2
