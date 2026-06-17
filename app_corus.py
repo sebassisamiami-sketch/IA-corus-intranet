@@ -735,13 +735,12 @@ def mostrar_chat():
             background: transparent !important;
             padding: 10px 0 !important;
         }
-        [data-testid="stChatMessageContent"] { color: #ececf1 !important; }
+        [data-testid="stChatMessage"] * { color: #ececf1 !important; }
 
         /* Barra inferior y caja de entrada estilo ChatGPT */
-        [data-testid="stBottom"], [data-testid="stBottom"] > div {
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
+        [data-testid="stBottom"] > div,
+        [data-testid="stBottomBlockContainer"] {
+            background: #212121 !important;
         }
         [data-testid="stChatInput"] {
             background: #2f2f2f !important;
@@ -749,12 +748,17 @@ def mostrar_chat():
             border-radius: 26px !important;
             box-shadow: 0 2px 14px rgba(0, 0, 0, 0.4);
         }
+        [data-testid="stChatInput"] > div { background: transparent !important; }
         [data-testid="stChatInput"] textarea {
             background: transparent !important;
             color: #ececf1 !important;
+            -webkit-text-fill-color: #ececf1 !important;
             font-size: 1rem !important;
         }
-        [data-testid="stChatInput"] textarea::placeholder { color: #8e8ea0 !important; }
+        [data-testid="stChatInput"] textarea::placeholder {
+            color: #8e8ea0 !important;
+            -webkit-text-fill-color: #8e8ea0 !important;
+        }
 
         /* Expander de fuentes */
         section.main [data-testid="stExpander"] {
@@ -766,6 +770,24 @@ def mostrar_chat():
         section.main [data-testid="stExpander"] summary * { color: #ececf1 !important; }
     </style>
     """, unsafe_allow_html=True)
+
+    def _render_fuentes(sources):
+        """Renderiza las fuentes como ventana de comandos / terminal."""
+        if not sources:
+            return
+        with st.expander(f"📚 Fuentes ({len(sources)})"):
+            for i, source in enumerate(sources, 1):
+                archivo = html.escape(str(source.get('archivo', 'documento')))
+                pagina = source.get('metadata', {}).get('page', 'N/A')
+                st.markdown(f"""
+<div class="terminal-bar">
+<span class="dot red"></span>
+<span class="dot yellow"></span>
+<span class="dot green"></span>
+<span class="title">fuente {i} &mdash; {archivo} &middot; pag. {pagina}</span>
+</div>
+""", unsafe_allow_html=True)
+                st.code(source['contenido'][:400], language="text")
 
     # Leer el historial vivo desde el chat_processor
     historial_actual = []
@@ -788,44 +810,40 @@ def mostrar_chat():
         for msg in historial_actual[-30:]:
             with st.chat_message("user", avatar="🧑"):
                 st.markdown(str(msg.get('mensaje_original', '')))
-
             with st.chat_message("assistant", avatar="🤖"):
                 if msg.get('exitoso'):
                     st.markdown(msg.get('respuesta', ''))
-
-                    # Fuentes estilo ventana de comandos / terminal
-                    if msg.get('sources'):
-                        with st.expander(f"📚 Fuentes ({len(msg['sources'])})"):
-                            for i, source in enumerate(msg['sources'], 1):
-                                archivo = html.escape(str(source.get('archivo', 'documento')))
-                                pagina = source.get('metadata', {}).get('page', 'N/A')
-                                st.markdown(f"""
-<div class="terminal-bar">
-<span class="dot red"></span>
-<span class="dot yellow"></span>
-<span class="dot green"></span>
-<span class="title">fuente {i} &mdash; {archivo} &middot; pag. {pagina}</span>
-</div>
-""", unsafe_allow_html=True)
-                                st.code(source['contenido'][:400], language="text")
+                    _render_fuentes(msg.get('sources'))
                 else:
                     st.error(msg.get('respuesta', 'Error'))
 
-    # Entrada fija abajo (estilo ChatGPT)
+    # Entrada fija abajo (estilo ChatGPT) - patron oficial, SIN st.rerun()
     user_input = st.chat_input("Escribe tu pregunta...")
     if user_input and user_input.strip():
         logger.info(f"📨 Mensaje de {st.session_state.usuario}: {user_input[:50]}")
-        with st.spinner("Pensando..."):
-            try:
-                st.session_state.chat_processor.procesar_mensaje(
-                    mensaje=user_input,
-                    contexto={'rol': st.session_state.rol}
-                )
-            except Exception as e:
-                logger.error(f"❌ Error: {e}", exc_info=True)
-                st.error(f"❌ Error procesando: {str(e)}")
-                return
-        st.rerun()
+
+        # Mostrar la pregunta del usuario de inmediato
+        with st.chat_message("user", avatar="🧑"):
+            st.markdown(user_input)
+
+        # Generar y mostrar la respuesta del asistente
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Pensando..."):
+                try:
+                    respuesta = st.session_state.chat_processor.procesar_mensaje(
+                        mensaje=user_input,
+                        contexto={'rol': st.session_state.rol}
+                    )
+                except Exception as e:
+                    logger.error(f"❌ Error: {e}", exc_info=True)
+                    st.error(f"❌ Error procesando: {str(e)}")
+                    return
+
+            if respuesta.get('exitoso'):
+                st.markdown(respuesta.get('respuesta', ''))
+                _render_fuentes(respuesta.get('sources'))
+            else:
+                st.error(respuesta.get('respuesta', 'Error'))
 
 
 def mostrar_estadisticas():
