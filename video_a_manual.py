@@ -25,6 +25,30 @@ logger = logging.getLogger(__name__)
 
 MAX_BYTES = 24 * 1024 * 1024  # límite práctico de Whisper (25MB)
 
+# Contexto del negocio para interpretar mejor los videos (NO afecta el chat ni los manuales existentes)
+DOMAIN_CONTEXT = (
+    "CONTEXTO DEL NEGOCIO (úsalo para interpretar el video, no para inventar):\n"
+    "- El equipo trabaja con WetMethods y procesos de BPM (Business Process Management).\n"
+    "- Los 'tickets' o 'casos' se gestionan dentro de los flujos de BPM: se BUSCAN, se VALIDAN "
+    "(la etapa/flujo correcto) y se CIERRAN en el sistema.\n"
+    "- Un caso típico implica: identificar el ticket, buscarlo/abrirlo, validar la etapa del flujo "
+    "de BPM, ejecutar acciones (consultas, cambios, validaciones) y cerrar el caso.\n"
+    "- Presta especial atención a: el NOMBRE del caso/ticket, la ETAPA o FLUJO de BPM, cómo se "
+    "BUSCA/abre el ticket, QUÉ se valida, qué DATOS o CONSULTAS se usan, y cómo se CIERRA el caso."
+)
+
+
+def _extraer_relevante(texto: str) -> str:
+    """Paso 1: extrae de forma exhaustiva todo lo operativamente relevante del video."""
+    return _gpt([
+        {"role": "system", "content": DOMAIN_CONTEXT + "\n\nEres analista de procesos. Lee la "
+         "transcripción y EXTRAE en una lista exhaustiva y ORDENADA todo lo relevante: nombre del "
+         "caso/ticket, cómo se busca y se abre, la etapa/flujo de BPM involucrado, validaciones, "
+         "acciones concretas, pantallas/botones/campos, datos y consultas exactas, y cómo se cierra "
+         "el caso. No omitas detalles. No inventes nada que no esté en la transcripción."},
+        {"role": "user", "content": texto},
+    ], max_tokens=2500, temp=0.2)
+
 
 def _api_key():
     try:
@@ -114,38 +138,74 @@ def _resumen_parcial(texto: str) -> str:
     ], max_tokens=1000)
 
 
-def _manual_final(texto: str, titulo: str) -> str:
+def _manual_final(texto: str, titulo: str, puntos: str = "") -> str:
     instruccion = (
-        "Eres un redactor técnico experto en documentación de procesos. A partir de la "
-        "TRANSCRIPCIÓN de un video donde se explica un caso/proceso, redacta un MANUAL "
-        "COMPLETO, EXTENSO y DETALLADO en español.\n\n"
+        DOMAIN_CONTEXT + "\n\n"
+        "Eres un redactor técnico experto en documentación de procesos BPM. A partir de la "
+        "TRANSCRIPCIÓN y los PUNTOS CLAVE EXTRAÍDOS de un video, redacta un MANUAL COMPLETO, "
+        "EXTENSO y DETALLADO en español.\n\n"
         f"El NOMBRE DEL CASO es: \"{titulo}\". Úsalo como referencia del proceso.\n\n"
         "Estructura obligatoria (desarrolla CADA sección al máximo, sin dejar nada vacío):\n\n"
         f"# {titulo}\n"
         "## Caso / Proceso\n"
-        "Explica de qué caso o proceso trata (1-2 frases).\n"
+        "Explica de qué caso o ticket trata y en qué flujo/etapa de BPM aplica.\n"
         "## Objetivo\n"
         "Qué se logra al completar el proceso.\n"
         "## Requisitos previos\n"
-        "Accesos, sistemas, datos o herramientas necesarios (los que se mencionen).\n"
+        "Accesos, sistemas (WetMethods/BPM), datos o herramientas necesarios.\n"
         "## Pasos detallados\n"
         "Enumera TODOS los pasos en orden (1, 2, 3, ...). Para cada paso explica QUÉ se hace, "
-        "DÓNDE (pantalla, menú, botón, campo) y CON QUÉ DATOS. Incluye consultas, rutas o valores "
-        "exactos que aparezcan. Sé minucioso: es mejor sobrar que faltar.\n"
+        "DÓNDE (pantalla, menú, botón, campo, etapa de BPM) y CON QUÉ DATOS. Incluye cómo se "
+        "busca/abre el ticket, cómo se valida la etapa y cómo se cierra el caso. Incluye consultas, "
+        "rutas o valores exactos. Sé minucioso: mejor sobrar que faltar.\n"
+        "## Validaciones y cierre del caso\n"
+        "Cómo se valida el flujo de BPM y cómo se cierra el ticket.\n"
         "## Notas y advertencias\n"
-        "Validaciones, errores comunes, recomendaciones.\n"
+        "Errores comunes, validaciones, recomendaciones.\n"
         "## Resumen\n"
         "Resumen breve del proceso.\n\n"
         "REGLAS:\n"
-        "- Usa TODA la información de la transcripción; reordénala y redáctala con claridad.\n"
+        "- Usa TODA la información disponible; reordénala y redáctala con claridad.\n"
         "- NO dejes secciones vacías. Si algo no se menciona, escribe 'No se especifica en el video'.\n"
         "- Desarrolla los pasos con frases completas, no en telegrama.\n"
-        "- Es un documento oficial: sé profesional, claro y EXTENSO."
+        "- Es un documento oficial: profesional, claro y EXTENSO."
     )
+    contenido_usuario = f"TRANSCRIPCIÓN DEL VIDEO:\n{texto}"
+    if puntos:
+        contenido_usuario += f"\n\nPUNTOS CLAVE EXTRAÍDOS:\n{puntos}"
     return _gpt([
         {"role": "system", "content": instruccion},
-        {"role": "user", "content": f"TRANSCRIPCIÓN DEL VIDEO:\n{texto}"},
-    ], max_tokens=3500, temp=0.4)
+        {"role": "user", "content": contenido_usuario},
+    ], max_tokens=3800, temp=0.4)
+
+
+def resumir_a_manual(transcripcion: str, titulo: str) -> str:
+    """Convierte la transcripción en un manual completo (2 pasos: extraer + redactar)."""
+    transcripcion = (transcripcion or "").strip()
+    if not transcripcion:
+        return "No se obtuvo transcripción del video."
+
+    base = transcripcion
+    # Si es larguísimo, condensar por partes primero (conservando detalle)
+    if len(transcripcion) > 40000:
+        trozos = [transcripcion[i:i + 12000] for i in range(0, len(transcripcion), 12000)]
+        partes = []
+        for t in trozos:
+            try:
+                partes.append(_resumen_parcial(t))
+            except Exception as e:
+                logger.error(f"Error en resumen parcial: {e}")
+        base = "\n".join(partes)
+
+    # Paso 1: extraer TODO lo relevante (enfoque BPM / tickets)
+    try:
+        puntos = _extraer_relevante(base)
+    except Exception as e:
+        logger.error(f"Error extrayendo puntos: {e}")
+        puntos = ""
+
+    # Paso 2: redactar el manual final con el contexto + los puntos
+    return _manual_final(base, titulo, puntos)
 
 
 def resumir_a_manual(transcripcion: str, titulo: str) -> str:
