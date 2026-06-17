@@ -5,11 +5,22 @@ Optimizado para Streamlit Cloud
 """
 
 import streamlit as st
+from pathlib import Path
+
+# ===== LOGO DE LA PÁGINA =====
+# Cargamos logo_corus2.png como ícono de la página (pestaña del navegador).
+# Si por alguna razón no se puede cargar, usamos el emoji como respaldo.
+LOGO_PATH = Path(__file__).parent / "logo_corus2.png"
+try:
+    from PIL import Image
+    _page_icon = Image.open(LOGO_PATH) if LOGO_PATH.exists() else "🤖"
+except Exception:
+    _page_icon = "🤖"
 
 # ===== CONFIGURACIÓN INICIAL (DEBE SER LO PRIMERO) =====
 st.set_page_config(
-    page_title="🤖 Corus Intranet Engine v2.0",
-    page_icon="🤖",
+    page_title="Corus Intranet Engine v2.0",
+    page_icon=_page_icon,
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -275,9 +286,13 @@ def pantalla_login():
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
+        # Mostrar el logo de la empresa centrado
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), use_column_width=True)
+
         st.markdown("""
         <div class="login-container">
-        <h1>🤖 Corus Intranet Engine</h1>
+        <h1>Corus Intranet Engine</h1>
         <p>Sistema IA Corporativo v2.0</p>
         </div>
         """, unsafe_allow_html=True)
