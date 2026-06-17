@@ -538,7 +538,8 @@ def mostrar_chat():
                     
                     if respuesta['exitoso']:
                         st.success("✅ Respuesta generada")
-                        st.session_state.historial.append(respuesta)
+                        # No agregamos manualmente: procesar_mensaje() ya guarda
+                        # la respuesta en chat_processor.historial_local
                     else:
                         st.error(f"❌ Error: {respuesta['respuesta']}")
                 
@@ -549,9 +550,15 @@ def mostrar_chat():
     # Historial
     st.markdown("### 📜 Historial de Conversación")
     
-    if st.session_state.historial:
+    # Leer SIEMPRE el historial vivo desde el chat_processor para evitar
+    # referencias obsoletas tras limpiar el chat
+    historial_actual = []
+    if st.session_state.chat_processor:
+        historial_actual = st.session_state.chat_processor.historial_local
+    
+    if historial_actual:
         # Mostrar en orden inverso (más recientes primero)
-        for msg in reversed(st.session_state.historial[-20:]):
+        for msg in reversed(historial_actual[-20:]):
             with st.container():
                 col1, col2 = st.columns([0.1, 0.9])
                 
