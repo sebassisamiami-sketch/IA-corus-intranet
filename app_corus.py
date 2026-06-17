@@ -305,7 +305,7 @@ st.markdown("""
 
     /* Ocultar barra/herramientas de Streamlit (Deploy, menu, footer) y franja blanca superior */
     header[data-testid="stHeader"] {
-        background: transparent !important;
+        display: none !important;
         height: 0 !important;
     }
     [data-testid="stToolbar"] { display: none !important; }
@@ -331,6 +331,31 @@ st.markdown("""
     ._container_gzau3_1,
     ._link_gzau3_10,
     ._profilePreview_gzau3_63 { display: none !important; }
+
+    /* ===== Modo embed (?embed=true): ocultar barra superior, el footer
+       "Built with Streamlit" y el botón "Fullscreen" de abajo ===== */
+    /* Barra/franja superior */
+    [data-testid="stToolbar"],
+    [data-testid="stHeader"],
+    [data-testid="stDecoration"] { display: none !important; }
+    /* Footer del modo embed y enlaces a streamlit.io */
+    [data-testid="stBottom"] footer,
+    [data-testid="stBottomBlockContainer"] footer,
+    footer a[href*="streamlit.io"],
+    a[href^="https://streamlit.io"],
+    a[href^="http://streamlit.io"],
+    a[href*="//streamlit.io"] { display: none !important; }
+    /* Botón "Fullscreen" del modo embed (esquina inferior derecha) */
+    button[title="Fullscreen"],
+    button[title="Exit fullscreen"],
+    [data-testid="StyledFullScreenButton"],
+    [data-testid="stToolbarActionButton"] { display: none !important; }
+    /* Contenedor del badge embebido (clases con hash) */
+    [class*="stAppEmbed"],
+    [class*="embedBadge"],
+    [class*="_embedBadge"],
+    [class*="terminalButton"] { display: none !important; }
+
 
     /* Colores corporativos */
     :root {
