@@ -756,8 +756,10 @@ def mostrar_chat():
         [data-testid="stChatInput"] > div { background: transparent !important; }
         [data-testid="stChatInput"] textarea {
             background: transparent !important;
-            color: #ececf1 !important;
-            -webkit-text-fill-color: #ececf1 !important;
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+            caret-color: #ffffff !important;
+            opacity: 1 !important;
             font-size: 1rem !important;
         }
         [data-testid="stChatInput"] textarea::placeholder {

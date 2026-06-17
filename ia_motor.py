@@ -58,6 +58,7 @@ class CorusIntranetEngine:
         self.llm = None
         self.memory = None
         self.chain = None
+        self.prompt_str = ""
         self.estado = "inicializando"
         self.estadisticas = {
             "queries_totales": 0,
@@ -173,6 +174,7 @@ Consulta: {question}
 
 Respuesta:"""
                 
+                self.prompt_str = prompt_template
                 PROMPT = PromptTemplate(
                     template=prompt_template, input_variables=["context", "question"]
                 )
@@ -196,7 +198,12 @@ Respuesta:"""
             self.chain = None
     
     def query(self, pregunta: str, contexto: Dict = None) -> Dict[str, Any]:
-        """Ejecutar query al motor IA"""
+        """Ejecutar query al motor IA.
+
+        Para EVITAR mezclar casos:
+        - Cada pregunta es independiente (sin memoria de conversacion).
+        - La respuesta usa SOLO el documento mas relevante (no combina PDFs).
+        """
         try:
             if self.estado != "listo":
                 return {
@@ -206,15 +213,12 @@ Respuesta:"""
                     'error': "SISTEMA_NO_LISTO",
                     'timestamp': datetime.now().isoformat()
                 }
-            
-            if not self.chain:
-                logger.warning("⚠️ Chain no disponible, usando LLM directo")
-                respuesta_llm = self.llm.invoke([
-                    HumanMessage(content=pregunta)
-                ])
-                
+
+            # Sin vectorstore -> LLM directo (fallback)
+            if not self.vectorstore:
+                logger.warning("⚠️ Vectorstore no disponible, usando LLM directo")
+                respuesta_llm = self.llm.invoke([HumanMessage(content=pregunta)])
                 self.estadisticas['queries_exitosas'] += 1
-                
                 return {
                     'exito': True,
                     'respuesta': respuesta_llm.content,
@@ -222,41 +226,62 @@ Respuesta:"""
                     'modo': 'LLM_DIRECTO',
                     'timestamp': datetime.now().isoformat()
                 }
-            
+
             logger.info(f"🔍 Query: {pregunta[:100]}...")
-            
-            resultado = self.chain.invoke({
-                "question": pregunta,
-                "chat_history": self.memory.buffer
-            })
-            
+
+            # 1) Recuperar documentos relevantes
+            docs = self.vectorstore.similarity_search(pregunta, k=4)
+
             self.estadisticas['queries_totales'] += 1
-            self.estadisticas['queries_exitosas'] += 1
             self.estadisticas['ultima_consulta'] = datetime.now().isoformat()
-            
-            sources = []
-            if resultado.get('source_documents'):
-                sources = [
-                    {
-                        'contenido': doc.page_content[:500],
-                        'metadata': doc.metadata,
-                        'archivo': doc.metadata.get('source', 'desconocido')
-                    }
-                    for doc in resultado['source_documents'][:3]
-                ]
-            
+
+            if not docs:
+                self.estadisticas['queries_exitosas'] += 1
+                return {
+                    'exito': True,
+                    'respuesta': "Compañero, tras revisar la base de datos corporativa, no logré ubicar información sobre este tema.",
+                    'sources': [],
+                    'modo': 'RAG',
+                    'timestamp': datetime.now().isoformat()
+                }
+
+            # 2) 🔒 Usar SOLO el documento mas relevante para NO mezclar casos
+            fuente_principal = docs[0].metadata.get('source')
+            docs_filtrados = [
+                d for d in docs if d.metadata.get('source') == fuente_principal
+            ]
+
+            # 3) Construir contexto unicamente con ese documento
+            contexto_texto = "\n\n".join(d.page_content for d in docs_filtrados)
+            prompt_final = self.prompt_str.format(
+                context=contexto_texto, question=pregunta
+            )
+
+            # 4) Generar respuesta
+            respuesta_llm = self.llm.invoke([HumanMessage(content=prompt_final)])
+            self.estadisticas['queries_exitosas'] += 1
+
+            sources = [
+                {
+                    'contenido': d.page_content[:500],
+                    'metadata': d.metadata,
+                    'archivo': d.metadata.get('source', 'desconocido')
+                }
+                for d in docs_filtrados
+            ]
+
             return {
                 'exito': True,
-                'respuesta': resultado.get('answer', 'Sin respuesta'),
+                'respuesta': respuesta_llm.content,
                 'sources': sources,
                 'modo': 'RAG',
                 'timestamp': datetime.now().isoformat()
             }
-        
+
         except Exception as e:
             logger.error(f"❌ Error en query: {e}", exc_info=True)
             self.estadisticas['queries_fallidas'] += 1
-            
+
             return {
                 'exito': False,
                 'respuesta': f"❌ Error procesando pregunta: {str(e)}",
@@ -264,7 +289,8 @@ Respuesta:"""
                 'error': str(e),
                 'timestamp': datetime.now().isoformat()
             }
-    
+
+
     def obtener_estado(self) -> Dict[str, Any]:
         """Obtener estado actual del motor"""
         return {
