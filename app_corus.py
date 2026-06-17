@@ -420,6 +420,10 @@ def pantalla_principal():
     
     # Sidebar expandible con tema profesional
     with st.sidebar:
+        # Logo de la empresa
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), use_column_width=True)
+
         # Header del sidebar
         st.markdown(f"""
         <div style="
@@ -522,8 +526,14 @@ def pantalla_principal():
 def mostrar_chat():
     """Mostrar interfaz de chat"""
     
-    st.markdown("# 💬 Chat Corporativo IA")
-    st.markdown("Consulta documentos de **parafiscales** y **pensiones** con IA")
+    # Encabezado con logo
+    col_logo, col_titulo = st.columns([0.12, 0.88])
+    with col_logo:
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), use_column_width=True)
+    with col_titulo:
+        st.markdown("# 💬 Chat Corporativo IA")
+        st.markdown("Consulta documentos de **parafiscales** y **pensiones** con IA")
     
     # Input con Enter
     with st.form("form_chat", clear_on_submit=True):
