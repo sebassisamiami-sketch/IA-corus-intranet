@@ -1095,6 +1095,17 @@ def mostrar_chat():
                 else:
                     st.error(msg.get('respuesta', 'Error'))
 
+    # Botón compacto: Modo experto (activar/desactivar)
+    col_exp, _col_exp2 = st.columns([0.4, 0.6])
+    with col_exp:
+        modo_experto = st.checkbox(
+            "🎓 Modo experto",
+            key="modo_experto_chk",
+            help=("Activado: responde con conocimiento general del tema "
+                  "(BPM, WetMethods, Service Manager...). Desactivado: responde "
+                  "solo con la documentación de los manuales.")
+        )
+
     # Adjuntar imagen (opcional) para analizar casos de BPM / Service Manager / WetMethods
     if "img_uploader_n" not in st.session_state:
         st.session_state.img_uploader_n = 0
@@ -1188,7 +1199,7 @@ def mostrar_chat():
                     try:
                         respuesta = st.session_state.chat_processor.procesar_mensaje(
                             mensaje=pregunta_final,
-                            contexto={'rol': st.session_state.rol}
+                            contexto={'rol': st.session_state.rol, 'modo_experto': modo_experto}
                         )
                     except Exception as e:
                         logger.error(f"❌ Error: {e}", exc_info=True)
