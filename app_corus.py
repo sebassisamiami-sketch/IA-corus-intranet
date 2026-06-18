@@ -842,6 +842,16 @@ def pantalla_login():
                         registrar_acceso(usuario_seleccionado, usuario_data['rol'], "LOGIN")
                         
                         logger.info(f"✅ Login exitoso: {usuario_seleccionado}")
+                        # Guardar token de sesión en la URL para no perder la
+                        # sesión al refrescar la página.
+                        try:
+                            from invite_links import generar_token_sesion
+                            _stk = generar_token_sesion(
+                                usuario_seleccionado, usuario_data['rol'], horas=8
+                            )
+                            st.experimental_set_query_params(s=_stk)
+                        except Exception:
+                            pass
                         st.success(f"✅ ¡Bienvenido {usuario_seleccionado}!")
                         st.rerun()
                     
@@ -986,6 +996,12 @@ def pantalla_principal():
                 st.session_state.motor_ia = None
                 st.session_state.chat_processor = None
                 st.session_state.historial = []
+                
+                # Quitar el token de sesión de la URL
+                try:
+                    st.experimental_set_query_params()
+                except Exception:
+                    pass
                 
                 logger.info("✅ Sesión cerrada")
                 st.rerun()
@@ -1798,6 +1814,66 @@ def mostrar_admin_enlaces():
         st.caption("Escribe la URL de la app arriba para ver la versión 'limpia' (con embed=true).")
 
 
+def _restaurar_sesion_desde_token() -> bool:
+    """Si la URL trae ?s=<token de sesión> válido, restaura la sesión del usuario
+    sin pedir login otra vez (mantiene la sesión al refrescar la página)."""
+    if st.session_state.get("autenticado"):
+        return False
+    try:
+        qp = st.experimental_get_query_params()
+    except Exception:
+        qp = {}
+    valores = qp.get("s") if qp else None
+    if isinstance(valores, list):
+        token = valores[0] if valores else None
+    else:
+        token = valores
+    if not token:
+        return False
+
+    try:
+        from invite_links import validar_token_sesion
+    except Exception:
+        return False
+    data = validar_token_sesion(token)
+    if not data:
+        return False
+
+    usuarios = cargar_usuarios()
+    usuario = data.get("usuario")
+    if not usuario or usuario not in usuarios:
+        return False
+    rol = usuarios[usuario].get("rol", data.get("rol", "Analista"))
+
+    motor_ia = cargar_motor_ia()
+    if not motor_ia:
+        return False
+    try:
+        if motor_ia.obtener_estado().get('estado') != 'listo':
+            return False
+    except Exception:
+        return False
+
+    chat_processor = cargar_chat_processor(usuario, rol)
+    if not chat_processor:
+        return False
+    try:
+        chat_processor._cargar_memoria_usuario()
+    except Exception:
+        pass
+
+    st.session_state.autenticado = True
+    st.session_state.usuario = usuario
+    st.session_state.rol = rol
+    st.session_state.motor_ia = motor_ia
+    st.session_state.chat_processor = chat_processor
+    st.session_state.historial = chat_processor.historial_local
+    st.session_state.inicio_sesion = datetime.now()
+    st.session_state.ultima_actividad = datetime.now()
+    logger.info(f"🔄 Sesión restaurada desde token: {usuario}")
+    return True
+
+
 def _intentar_acceso_invitado() -> bool:
     """Si la URL trae ?invite=<token> válido, autentica como Invitado (sin login).
 
@@ -1868,9 +1944,10 @@ def main():
     """Función principal"""
     inicializar_sesion()
 
-    # Acceso de invitado mediante enlace temporal (?invite=token)
+    # Acceso de invitado por enlace, o restauración de sesión al refrescar
     if not st.session_state.autenticado:
-        _intentar_acceso_invitado()
+        if not _intentar_acceso_invitado():
+            _restaurar_sesion_desde_token()
     
     if st.session_state.autenticado:
         # 🔒 Auto-logout por inactividad (15 minutos)
@@ -1888,6 +1965,11 @@ def main():
             st.session_state.chat_processor = None
             st.session_state.historial = []
             st.session_state.ultima_actividad = None
+            # Quitar el token de sesión de la URL (para que el refresco pida login)
+            try:
+                st.experimental_set_query_params()
+            except Exception:
+                pass
             st.warning("⏱️ Tu sesión se cerró por inactividad (15 minutos). Inicia sesión nuevamente.")
             pantalla_login()
             return
