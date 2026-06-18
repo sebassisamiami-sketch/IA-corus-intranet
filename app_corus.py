@@ -842,14 +842,14 @@ def pantalla_login():
                         registrar_acceso(usuario_seleccionado, usuario_data['rol'], "LOGIN")
                         
                         logger.info(f"✅ Login exitoso: {usuario_seleccionado}")
-                        # Guardar token de sesión en la URL para no perder la
-                        # sesión al refrescar la página.
+                        # Guardar token de sesión; la URL se actualiza en el
+                        # render ya autenticado (en main), para no perderlo por
+                        # la carrera con st.rerun().
                         try:
                             from invite_links import generar_token_sesion
-                            _stk = generar_token_sesion(
+                            st.session_state.session_token = generar_token_sesion(
                                 usuario_seleccionado, usuario_data['rol'], horas=8
                             )
-                            st.experimental_set_query_params(s=_stk)
                         except Exception:
                             pass
                         st.success(f"✅ ¡Bienvenido {usuario_seleccionado}!")
@@ -996,6 +996,7 @@ def pantalla_principal():
                 st.session_state.motor_ia = None
                 st.session_state.chat_processor = None
                 st.session_state.historial = []
+                st.session_state.session_token = None
                 
                 # Quitar el token de sesión de la URL
                 try:
@@ -1852,6 +1853,7 @@ def _restaurar_sesion_desde_token() -> bool:
     st.session_state.autenticado = True
     st.session_state.usuario = usuario
     st.session_state.rol = rol
+    st.session_state.session_token = token
     st.session_state.motor_ia = motor_ia
     st.session_state.chat_processor = chat_processor
     st.session_state.historial = chat_processor.historial_local
@@ -1952,6 +1954,7 @@ def main():
             st.session_state.chat_processor = None
             st.session_state.historial = []
             st.session_state.ultima_actividad = None
+            st.session_state.session_token = None
             # Quitar el token de sesión de la URL (para que el refresco pida login)
             try:
                 st.experimental_set_query_params()
@@ -1962,6 +1965,13 @@ def main():
             return
         # Renovar el tiempo de actividad en cada interacción
         st.session_state.ultima_actividad = ahora
+        # Asegurar el token de sesión en la URL (persiste al refrescar).
+        # Se hace aquí, en el render normal, NO justo antes de un rerun.
+        if st.session_state.rol != "Invitado" and st.session_state.get("session_token"):
+            try:
+                st.experimental_set_query_params(s=st.session_state.session_token)
+            except Exception:
+                pass
         pantalla_principal()
     else:
         pantalla_login()
