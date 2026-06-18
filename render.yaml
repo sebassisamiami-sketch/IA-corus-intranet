@@ -1,0 +1,15 @@
+# render.yaml - Despliegue automático en Render (https://render.com)
+# Render leerá este archivo (Blueprint) y creará el servicio web con Docker.
+services:
+  - type: web
+    name: corus-ia
+    runtime: docker
+    plan: free            # plan gratuito (puedes subir a "starter" si necesitas más RAM)
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true       # vuelve a desplegar al hacer push a main
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false        # se define manualmente en el panel de Render (secreto)
+      - key: INVITE_SEED
+        sync: false        # semilla para los enlaces de invitación (secreto, opcional)
