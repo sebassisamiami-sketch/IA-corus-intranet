@@ -110,3 +110,37 @@ def construir_enlace(base_url: str, token: str) -> str:
     # quitar cualquier embed/invite previo para no duplicar
     sep = "&" if ("?" in base) else "?"
     return f"{base}{sep}embed=true&invite={token}"
+
+
+
+# ===== Tokens de SESIÓN (para mantener la sesión al refrescar la página) =====
+# Se firman con la misma semilla. Llevan usuario, rol y caducidad, así al
+# recargar la página el usuario sigue dentro sin tener que volver a iniciar sesión.
+
+def generar_token_sesion(usuario: str, rol: str, horas: int = 8) -> str:
+    """Genera un token de sesión firmado para el usuario (válido `horas`)."""
+    exp = int(time.time()) + int(horas) * 3600
+    payload_raw = f"{usuario}|{rol}|{exp}"
+    payload_b64 = base64.urlsafe_b64encode(
+        payload_raw.encode("utf-8")
+    ).decode("utf-8").rstrip("=")
+    return f"{payload_b64}.{_firmar(payload_b64)}"
+
+
+def validar_token_sesion(token: str):
+    """Valida un token de sesión. Devuelve dict {usuario, rol, exp} o None."""
+    try:
+        partes = str(token).split(".")
+        if len(partes) != 2:
+            return None
+        payload_b64, firma = partes
+        if not hmac.compare_digest(firma, _firmar(payload_b64)):
+            return None
+        pad = "=" * (-len(payload_b64) % 4)
+        raw = base64.urlsafe_b64decode(payload_b64 + pad).decode("utf-8")
+        usuario, rol, exp = raw.rsplit("|", 2)
+        if time.time() > int(exp):
+            return None
+        return {"usuario": usuario, "rol": rol, "exp": int(exp)}
+    except Exception:
+        return None
