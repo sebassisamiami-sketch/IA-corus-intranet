@@ -92,17 +92,30 @@ logger = inicializar_sistema()
 # ===== IMPORTS LAZY (solo cuando sea necesario) =====
 @st.cache_resource(show_spinner=False)
 def cargar_motor_ia():
-    """Cargar motor IA una sola vez"""
+    """Cargar motor IA una sola vez (rápido: NO indexa aquí para no bloquear el login)."""
     try:
         from ia_motor import obtener_motor
         logger.info("✅ Cargando motor IA...")
         motor = obtener_motor()
-        _autoindexar_documentos(motor)
-        logger.info("✅ Motor IA listo")
+        logger.info("✅ Motor IA listo (indexado diferido)")
         return motor
     except Exception as e:
         logger.error(f"❌ Error cargando motor: {e}")
         return None
+
+
+@st.cache_resource(show_spinner=False)
+def asegurar_indice():
+    """Indexa los PDFs UNA sola vez, de forma perezosa (al primer uso del chat).
+    Cacheado con cache_resource: solo corre la primera vez por despliegue, así el
+    login NO espera por la indexación."""
+    try:
+        motor = cargar_motor_ia()
+        _autoindexar_documentos(motor)
+        return True
+    except Exception as e:
+        logger.error(f"⚠️ Error asegurando índice: {e}")
+        return False
 
 def detectar_carpetas_documentos():
     """Detecta las carpetas (a nivel raíz del repo) que contienen PDFs.
@@ -1322,6 +1335,7 @@ indicar etapa BPM).</p>
                         from vision_chat import analizar_imagen
                         ctx_doc = ""
                         try:
+                            asegurar_indice()
                             motor = st.session_state.motor_ia
                             if motor and getattr(motor, "vectorstore", None) and pregunta_final.strip():
                                 ds = motor.vectorstore.similarity_search(pregunta_final, k=2)
@@ -1357,6 +1371,8 @@ indicar etapa BPM).</p>
                 # ----- Caso solo TEXTO (RAG normal) -----
                 with st.spinner("Pensando..."):
                     try:
+                        # Indexar los PDFs si aún no se ha hecho (perezoso, 1 sola vez)
+                        asegurar_indice()
                         respuesta = st.session_state.chat_processor.procesar_mensaje(
                             mensaje=pregunta_final,
                             contexto={'rol': st.session_state.rol, 'modo_experto': modo_experto}
