@@ -1319,6 +1319,13 @@ indicar etapa BPM).</p>
     if pregunta_final:
         logger.info(f"📨 Mensaje de {st.session_state.usuario}: {pregunta_final[:50]} (imagen={usar_imagen})")
 
+        # Preparar la base de conocimiento (indexado) SOLO la primera vez,
+        # con un mensaje claro para que se entienda la pequeña espera inicial.
+        if not st.session_state.get("_indice_ok"):
+            with st.spinner("📚 Preparando la base de conocimiento (solo la primera vez)..."):
+                asegurar_indice()
+            st.session_state._indice_ok = True
+
         # Mostrar la pregunta del usuario (con la imagen si aplica)
         with st.chat_message("user", avatar="🧑"):
             if usar_imagen and imagen is not None:
@@ -1371,8 +1378,6 @@ indicar etapa BPM).</p>
                 # ----- Caso solo TEXTO (RAG normal) -----
                 with st.spinner("Pensando..."):
                     try:
-                        # Indexar los PDFs si aún no se ha hecho (perezoso, 1 sola vez)
-                        asegurar_indice()
                         respuesta = st.session_state.chat_processor.procesar_mensaje(
                             mensaje=pregunta_final,
                             contexto={'rol': st.session_state.rol, 'modo_experto': modo_experto}
