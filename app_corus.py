@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Dict, List
 
 # ===== FUNCIONES DE INICIALIZACIÓN =====
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def inicializar_sistema():
     """Inicializar sistema una sola vez"""
     from dotenv import load_dotenv
@@ -90,7 +90,7 @@ def inicializar_sistema():
 logger = inicializar_sistema()
 
 # ===== IMPORTS LAZY (solo cuando sea necesario) =====
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def cargar_motor_ia():
     """Cargar motor IA una sola vez"""
     try:
@@ -795,7 +795,7 @@ def pantalla_login():
                         st.error(f"❌ Credenciales inválidas ({intentos}/5 intentos)")
                     return
                 
-                with st.spinner("⏳ Inicializando sistema..."):
+                with st.spinner("Iniciando sesión..."):
                     try:
                         logger.info(f"Iniciando sesión para {usuario_seleccionado}")
                         
