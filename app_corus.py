@@ -221,8 +221,8 @@ def cargar_usuarios() -> Dict[str, Dict]:
     """
     # 1) Usuarios por defecto
     usuarios = {
-        "admin": {"contraseña": "admin123", "rol": "Administrador"},
-        "analista": {"contraseña": "analista123", "rol": "Analista"}
+        "admin": {"contraseña": "Pipeline**2038******", "rol": "Administrador"},
+        "analista": {"contraseña": "FarmeoAura*26*****", "rol": "Analista"}
     }
 
     # 2) Usuarios PERMANENTES definidos en Streamlit Secrets ([usuarios.<nombre>])
