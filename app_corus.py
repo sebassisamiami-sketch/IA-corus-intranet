@@ -997,12 +997,10 @@ def pantalla_principal():
                 st.session_state.chat_processor = None
                 st.session_state.historial = []
                 st.session_state.session_token = None
-                
-                # Quitar el token de sesión de la URL
-                try:
-                    st.experimental_set_query_params()
-                except Exception:
-                    pass
+                # Marcamos cierre de sesión: la URL se limpia en el siguiente
+                # render (en main), porque limpiarla aquí no persiste por la
+                # carrera con st.rerun().
+                st.session_state._post_logout = True
                 
                 logger.info("✅ Sesión cerrada")
                 st.rerun()
@@ -1935,8 +1933,18 @@ def main():
 
     # Acceso de invitado por enlace, o restauración de sesión al refrescar
     if not st.session_state.autenticado:
-        if not _intentar_acceso_invitado():
-            _restaurar_sesion_desde_token()
+        if st.session_state.get("_post_logout"):
+            # Acabamos de cerrar sesión: limpiar el token de la URL en ESTE
+            # render (que muestra el login y no va seguido de rerun, así sí
+            # persiste) y NO restaurar la sesión anterior.
+            st.session_state._post_logout = False
+            try:
+                st.experimental_set_query_params()
+            except Exception:
+                pass
+        else:
+            if not _intentar_acceso_invitado():
+                _restaurar_sesion_desde_token()
     
     if st.session_state.autenticado:
         # 🔒 Auto-logout por inactividad (15 minutos)
